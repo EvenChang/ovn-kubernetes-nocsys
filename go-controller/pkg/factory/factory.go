@@ -18,6 +18,16 @@ import (
 	egressipscheme "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1/apis/clientset/versioned/scheme"
 	egressipinformerfactory "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1/apis/informers/externalversions"
 
+	floatingipproviderapi "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1"
+	floatingipproviderscheme "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1/apis/clientset/versioned/scheme"
+	floatingipproviderfactory "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1/apis/informers/externalversions"
+	floatingipclaimapi "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1"
+	floatingipclaimscheme "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1/apis/clientset/versioned/scheme"
+	floatingipclaimfactory "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1/apis/informers/externalversions"
+	floatingipapi "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1"
+	floatingipscheme "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/clientset/versioned/scheme"
+	floatingipfactory "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/informers/externalversions"
+
 	kapi "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	knet "k8s.io/api/networking/v1"
@@ -42,6 +52,9 @@ type WatchFactory struct {
 	iFactory    informerfactory.SharedInformerFactory
 	eipFactory  egressipinformerfactory.SharedInformerFactory
 	efFactory   egressfirewallinformerfactory.SharedInformerFactory
+	fipFactory  floatingipproviderfactory.SharedInformerFactory
+	ficFactory  floatingipclaimfactory.SharedInformerFactory
+	fiFactory   floatingipfactory.SharedInformerFactory
 	efClientset egressfirewallclientset.Interface
 	informers   map[reflect.Type]*informer
 
@@ -66,14 +79,17 @@ const (
 )
 
 var (
-	podType            reflect.Type = reflect.TypeOf(&kapi.Pod{})
-	serviceType        reflect.Type = reflect.TypeOf(&kapi.Service{})
-	endpointsType      reflect.Type = reflect.TypeOf(&kapi.Endpoints{})
-	policyType         reflect.Type = reflect.TypeOf(&knet.NetworkPolicy{})
-	namespaceType      reflect.Type = reflect.TypeOf(&kapi.Namespace{})
-	nodeType           reflect.Type = reflect.TypeOf(&kapi.Node{})
-	egressFirewallType reflect.Type = reflect.TypeOf(&egressfirewallapi.EgressFirewall{})
-	egressIPType       reflect.Type = reflect.TypeOf(&egressipapi.EgressIP{})
+	podType                reflect.Type = reflect.TypeOf(&kapi.Pod{})
+	serviceType            reflect.Type = reflect.TypeOf(&kapi.Service{})
+	endpointsType          reflect.Type = reflect.TypeOf(&kapi.Endpoints{})
+	policyType             reflect.Type = reflect.TypeOf(&knet.NetworkPolicy{})
+	namespaceType          reflect.Type = reflect.TypeOf(&kapi.Namespace{})
+	nodeType               reflect.Type = reflect.TypeOf(&kapi.Node{})
+	egressFirewallType     reflect.Type = reflect.TypeOf(&egressfirewallapi.EgressFirewall{})
+	egressIPType		   reflect.Type = reflect.TypeOf(&egressipapi.EgressIP{})
+	floatingIPProviderType reflect.Type = reflect.TypeOf(&floatingipproviderapi.FloatingIPProvider{})
+	floatingIPClaimType    reflect.Type = reflect.TypeOf(&floatingipclaimapi.FloatingIPClaim{})
+	floatingIPType         reflect.Type = reflect.TypeOf(&floatingipapi.FloatingIP{})
 )
 
 // NewMasterWatchFactory initializes a new watch factory for the master or master+node processes.
@@ -98,6 +114,18 @@ func NewMasterWatchFactory(ovnClientset *util.OVNClientset) (*WatchFactory, erro
 		return nil, err
 	}
 	err = egressfirewallapi.AddToScheme(egressfirewallscheme.Scheme)
+	if err != nil {
+		return nil, err
+	}
+	err = floatingipproviderapi.AddToScheme(floatingipproviderscheme.Scheme)
+	if err != nil {
+		return nil, err
+	}
+	err = floatingipclaimapi.AddToScheme(floatingipclaimscheme.Scheme)
+	if err != nil {
+		return nil, err
+	}
+	err = floatingipapi.AddToScheme(floatingipscheme.Scheme)
 	if err != nil {
 		return nil, err
 	}
@@ -173,6 +201,38 @@ func NewMasterWatchFactory(ovnClientset *util.OVNClientset) (*WatchFactory, erro
 		}
 
 	}
+
+	wf.informers[floatingIPProviderType], err = newInformer(floatingIPProviderType, wf.fipFactory.K8s().V1().FloatingIPProviders().Informer())
+	if err != nil {
+		return nil, err
+	}
+	wf.fipFactory.Start(wf.stopChan)
+	for oType, synced := range wf.fipFactory.WaitForCacheSync(wf.stopChan) {
+		if !synced {
+			return nil, fmt.Errorf("error in syncing cache for %v informer", oType)
+		}
+	}
+	wf.informers[floatingIPClaimType], err = newInformer(floatingIPClaimType, wf.ficFactory.K8s().V1().FloatingIPClaims().Informer())
+	if err != nil {
+		return nil, err
+	}
+	wf.ficFactory.Start(wf.stopChan)
+	for oType, synced := range wf.ficFactory.WaitForCacheSync(wf.stopChan) {
+		if !synced {
+			return nil, fmt.Errorf("error in syncing cache for %v informer", oType)
+		}
+	}
+	wf.informers[floatingIPType], err = newQueuedInformer(floatingIPType, wf.fiFactory.K8s().V1().FloatingIPs().Informer(), wf.stopChan)
+	if err != nil {
+		return nil, err
+	}
+	wf.fiFactory.Start(wf.stopChan)
+	for oType, synced := range wf.ficFactory.WaitForCacheSync(wf.stopChan) {
+		if !synced {
+			return nil, fmt.Errorf("error in syncing cache for %v informer", oType)
+		}
+	}
+
 	return wf, nil
 }
 
