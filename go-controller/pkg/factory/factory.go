@@ -227,7 +227,7 @@ func NewMasterWatchFactory(ovnClientset *util.OVNClientset) (*WatchFactory, erro
 		return nil, err
 	}
 	wf.fiFactory.Start(wf.stopChan)
-	for oType, synced := range wf.ficFactory.WaitForCacheSync(wf.stopChan) {
+	for oType, synced := range wf.fiFactory.WaitForCacheSync(wf.stopChan) {
 		if !synced {
 			return nil, fmt.Errorf("error in syncing cache for %v informer", oType)
 		}
