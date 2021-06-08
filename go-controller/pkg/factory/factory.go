@@ -18,15 +18,18 @@ import (
 	egressipscheme "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1/apis/clientset/versioned/scheme"
 	egressipinformerfactory "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1/apis/informers/externalversions"
 
-	floatingipproviderapi "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1"
-	floatingipproviderscheme "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1/apis/clientset/versioned/scheme"
-	floatingipproviderfactory "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1/apis/informers/externalversions"
+	floatingipapi "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1"
+	floatingipv1 "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1"
+	floatingipversioned "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/clientset/versioned"
+	floatingipscheme "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/clientset/versioned/scheme"
+	floatingipfactory "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/informers/externalversions"
+	v1floatingipinformers "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/informers/externalversions/floatingip/v1"
 	floatingipclaimapi "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1"
 	floatingipclaimscheme "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1/apis/clientset/versioned/scheme"
 	floatingipclaimfactory "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1/apis/informers/externalversions"
-	floatingipapi "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1"
-	floatingipscheme "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/clientset/versioned/scheme"
-	floatingipfactory "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/informers/externalversions"
+	floatingipproviderapi "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1"
+	floatingipproviderscheme "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1/apis/clientset/versioned/scheme"
+	floatingipproviderfactory "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1/apis/informers/externalversions"
 
 	kapi "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
@@ -103,6 +106,9 @@ func NewMasterWatchFactory(ovnClientset *util.OVNClientset) (*WatchFactory, erro
 	wf := &WatchFactory{
 		iFactory:    informerfactory.NewSharedInformerFactory(ovnClientset.KubeClient, resyncInterval),
 		eipFactory:  egressipinformerfactory.NewSharedInformerFactory(ovnClientset.EgressIPClient, resyncInterval),
+		fipFactory: floatingipproviderfactory.NewSharedInformerFactory(ovnClientset.FloatingIPProviderClient, resyncInterval),
+		ficFactory: floatingipclaimfactory.NewSharedInformerFactory(ovnClientset.FloatingIPClaimClient, resyncInterval),
+		fiFactory: floatingipfactory.NewSharedInformerFactory(ovnClientset.FloatingIPClient, resyncInterval),
 		efClientset: ovnClientset.EgressFirewallClient,
 		informers:   make(map[reflect.Type]*informer),
 		stopChan:    make(chan struct{}),
@@ -241,6 +247,7 @@ func NewMasterWatchFactory(ovnClientset *util.OVNClientset) (*WatchFactory, erro
 func NewNodeWatchFactory(ovnClientset *util.OVNClientset, nodeName string) (*WatchFactory, error) {
 	wf := &WatchFactory{
 		iFactory:    informerfactory.NewSharedInformerFactory(ovnClientset.KubeClient, resyncInterval),
+		fiFactory: floatingipfactory.NewSharedInformerFactory(ovnClientset.FloatingIPClient, resyncInterval),
 		efClientset: ovnClientset.EgressFirewallClient,
 		informers:   make(map[reflect.Type]*informer),
 		stopChan:    make(chan struct{}),
@@ -277,6 +284,18 @@ func NewNodeWatchFactory(ovnClientset *util.OVNClientset, nodeName string) (*Wat
 			})
 	})
 
+	// For FloatingIPs, only select floaingIPs assigned to this node
+	wf.fiFactory.InformerFor(&floatingipv1.FloatingIP{}, func(c floatingipversioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
+		return v1floatingipinformers.NewFilteredFloatingIPInformer(
+		    c,
+		    kapi.NamespaceAll,
+		    resyncPeriod,
+		    cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc},
+		    func(opts *metav1.ListOptions) {
+			    opts.FieldSelector = fields.OneTermEqualSelector("spec.Node", nodeName).String()
+		    })
+	})
+
 	var err error
 	wf.informers[podType], err = newQueuedInformer(podType, wf.iFactory.Core().V1().Pods().Informer(), wf.stopChan)
 	if err != nil {
@@ -300,6 +319,17 @@ func NewNodeWatchFactory(ovnClientset *util.OVNClientset, nodeName string) (*Wat
 
 	wf.iFactory.Start(wf.stopChan)
 	for oType, synced := range wf.iFactory.WaitForCacheSync(wf.stopChan) {
+		if !synced {
+			return nil, fmt.Errorf("error in syncing cache for %v informer", oType)
+		}
+	}
+
+	wf.informers[floatingIPType], err = newQueuedInformer(floatingIPType, wf.fiFactory.K8s().V1().FloatingIPs().Informer(), wf.stopChan)
+	if err != nil {
+		return nil, err
+	}
+	wf.fiFactory.Start(wf.stopChan)
+	for oType, synced := range wf.fiFactory.WaitForCacheSync(wf.stopChan) {
 		if !synced {
 			return nil, fmt.Errorf("error in syncing cache for %v informer", oType)
 		}
