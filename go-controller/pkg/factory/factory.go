@@ -557,6 +557,11 @@ func (wf *WatchFactory) AddFilteredNodeHandler(sel labels.Selector, handlerFuncs
 	return wf.addHandler(nodeType, "", sel, handlerFuncs, processExisting)
 }
 
+// AddFloatingIPHandler adds a handler function that will be executed on FloatingIP object change
+func (wf *WatchFactory) AddFloatingIPHandler(handlerFuncs cache.ResourceEventHandler, processExisting func([]interface{})) *Handler {
+    return wf.addHandler(floatingIPType, "", nil, handlerFuncs, processExisting)
+}
+
 // RemoveNodeHandler removes a Node object event handler function
 func (wf *WatchFactory) RemoveNodeHandler(handler *Handler) {
 	wf.removeHandler(nodeType, handler)
