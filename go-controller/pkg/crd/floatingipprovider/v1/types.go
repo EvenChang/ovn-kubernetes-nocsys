@@ -6,8 +6,10 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 // +genclient:nonNamespaced
 // +genclient:noStatus
 // +resource:path=floatingipprovider
-// +kubebuilder:resource:shortName=fipp,scope=Cluster
+// +kubebuilder:resource:shortName=fip,scope=Cluster
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +kubebuilder:printcolumn:name="FloatingIPs",type=string,JSONPath=".spec.floatingIPs[*]"
+// +kubebuilder:printcolumn:name="Assigned FloatingIP",type=string,JSONPath=".status.items[*].floatingIPs[*]"
 type FloatingIPProvider struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -24,12 +26,12 @@ type FloatingIPProviderStatus struct {
 	Items []FloatingIPProviderStatusItem `json:"items"`
 }
 
-// The per FloatingIP status, for those floating ip who have been assigned.
+// The per FloatingIP status, for those floating ip who have been claimed.
 type FloatingIPProviderStatusItem struct {
-	// FloatingIP's name
-	FloatingIPName string `json:"floatingIPName"`
+	// floatingIPClaim's name
+	FloatingIPClaim string `json:"floatingIPClaim"`
 	// floating ip addresses
-	IPs []string `json:"floatingIP"`
+	FloatingIPs []string `json:"floatingIPs"`
 }
 
 // FloatingIPProviderSpec is a desired state description o FloatingIPProvider.
@@ -37,9 +39,9 @@ type FloatingIPProviderSpec struct {
 	// FloatingIPs is the list of floating IP addresses requested. Can be IPv4 and/or IPv6.
 	// This field is mandatory.
 	FloatingIPs []string `json:"floatingIPs"`
-	// NamespaceSelector applies the floating IP only to the namespace(s) whose label
+	// VpcSelector applies the floating IP only to the tenant(s) whose label
 	// matches this definition. This field is mandatory.
-	NamespaceSelector metav1.LabelSelector `json:"namespaceSelector"`
+	VpcSelector metav1.LabelSelector `json:"vpcSelector"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
