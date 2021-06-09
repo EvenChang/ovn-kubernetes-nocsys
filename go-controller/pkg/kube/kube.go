@@ -3,6 +3,8 @@ package kube
 import (
 	"context"
 	"encoding/json"
+	floatingipv1 "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1"
+	floatingipclientset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/clientset/versioned"
 	"k8s.io/klog/v2"
 
 	egressfirewall "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressfirewall/v1"
@@ -25,6 +27,7 @@ type Interface interface {
 	SetAnnotationsOnNamespace(namespace *kapi.Namespace, annotations map[string]string) error
 	UpdateEgressFirewall(egressfirewall *egressfirewall.EgressFirewall) error
 	UpdateEgressIP(eIP *egressipv1.EgressIP) error
+	UpdateFloatingIP(fIP *floatingipv1.FloatingIP) error
 	UpdateNodeStatus(node *kapi.Node) error
 	GetAnnotationsOnPod(namespace, name string) (map[string]string, error)
 	GetNodes() (*kapi.NodeList, error)
@@ -33,6 +36,7 @@ type Interface interface {
 	GetEgressFirewalls() (*egressfirewall.EgressFirewallList, error)
 	GetNamespaces(labelSelector metav1.LabelSelector) (*kapi.NamespaceList, error)
 	GetPods(namespace string, labelSelector metav1.LabelSelector) (*kapi.PodList, error)
+	GetPod(namespace, name string) (*kapi.Pod, error)
 	GetNode(name string) (*kapi.Node, error)
 	GetEndpoint(namespace, name string) (*kapi.Endpoints, error)
 	CreateEndpoint(namespace string, ep *kapi.Endpoints) (*kapi.Endpoints, error)
@@ -44,6 +48,7 @@ type Kube struct {
 	KClient              kubernetes.Interface
 	EIPClient            egressipclientset.Interface
 	EgressFirewallClient egressfirewallclientset.Interface
+	FIPClient            floatingipclientset.Interface
 }
 
 // SetAnnotationsOnPod takes the pod object and map of key/value string pairs to set as annotations
@@ -139,6 +144,13 @@ func (k *Kube) UpdateEgressIP(eIP *egressipv1.EgressIP) error {
 	return err
 }
 
+// UpdateFloatingIP updates the FloatingIP with the provided FloatingIP status data
+func (k *Kube) UpdateFloatingIP(fIP *floatingipv1.FloatingIP) error {
+	klog.Infof("Updating status on FloatingIP %s", fIP.Name)
+	_, err := k.FIPClient.K8sV1().FloatingIPs().Update(context.TODO(), fIP, metav1.UpdateOptions{})
+	return err
+}
+
 // UpdateNodeStatus takes the node object and sets the provided update status
 func (k *Kube) UpdateNodeStatus(node *kapi.Node) error {
 	klog.Infof("Updating status on node %s", node.Name)
@@ -175,6 +187,11 @@ func (k *Kube) GetPods(namespace string, labelSelector metav1.LabelSelector) (*k
 // GetNodes returns the list of all Node objects from kubernetes
 func (k *Kube) GetNodes() (*kapi.NodeList, error) {
 	return k.KClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+}
+
+// GetNode returns the pod resource from kubernetes apiserver, given its namespace and name
+func (k *Kube) GetPod(namespace, name string) (*kapi.Pod, error) {
+	return k.KClient.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 }
 
 // GetNode returns the Node resource from kubernetes apiserver, given its name
