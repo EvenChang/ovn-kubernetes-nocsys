@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	floatingipv1 "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1"
 
 	"net"
 	"reflect"
@@ -173,6 +174,9 @@ type Controller struct {
 	// Controller used to handle services
 	svcController *svccontroller.Controller
 
+	// Controller used for floating ip
+	fIPC floatingIPController
+
 	egressFirewallDNS *EgressDNS
 
 	// Is ACL logging enabled while configuring meters?
@@ -307,6 +311,8 @@ func (oc *Controller) Run(wg *sync.WaitGroup, nodeName string) error {
 		oc.WatchEgressNodes()
 		oc.WatchEgressIP()
 	}
+
+	oc.WatchFloatingIP()
 
 	if config.OVNKubernetesFeature.EnableEgressFirewall {
 		var err error
@@ -740,6 +746,44 @@ func (oc *Controller) WatchEgressIP() {
 			}
 		},
 	}, oc.syncEgressIPs)
+}
+
+// WatchFloatingIP starts the watching of floatingip resource and calls
+// back the appropriate handler logic.
+func (oc *Controller) WatchFloatingIP() {
+	oc.watchFactory.AddFloatingIPHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			fIP := obj.(*floatingipv1.FloatingIP).DeepCopy()
+			if err := oc.addFloatingIP(fIP); err != nil {
+				klog.Error(err)
+			}
+			if err := oc.updateFloatingIPWithRetry(fIP); err != nil {
+				klog.Error(err)
+			}
+		},
+		UpdateFunc: func(old, new interface{}) {
+            oldFIP := old.(*floatingipv1.FloatingIP)
+            newFIP := new.(*floatingipv1.FloatingIP).DeepCopy()
+            if !reflect.DeepEqual(oldFIP.Spec, newFIP.Spec) {
+            	if err := oc.deleteFloatingIP(oldFIP); err != nil {
+            		klog.Error(err)
+				}
+
+				if err := oc.addFloatingIP(newFIP); err != nil {
+					klog.Error(err)
+				}
+				if err := oc.updateFloatingIPWithRetry(newFIP); err != nil {
+					klog.Error(err)
+				}
+			}
+		},
+		DeleteFunc: func(obj interface{}) {
+            fIP := obj.(*floatingipv1.FloatingIP)
+            if err := oc.deleteFloatingIP(fIP); err != nil {
+            	klog.Error(err)
+			}
+		},
+	}, oc.syncFloatingIPs)
 }
 
 // WatchNamespaces starts the watching of namespace resource and calls

@@ -63,6 +63,7 @@ const (
 	HybridOverlayReroutePriority          = "501"
 	DefaultNoRereoutePriority             = "101"
 	EgressIPReroutePriority               = "100"
+	FloatingIPReroutePriority             = "99"
 
 	V6NodeLocalNATSubnet           = "fd99::/64"
 	V6NodeLocalNATSubnetPrefix     = 64
