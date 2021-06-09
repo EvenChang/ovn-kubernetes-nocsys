@@ -34,8 +34,8 @@ type K8sV1Client struct {
 	restClient rest.Interface
 }
 
-func (c *K8sV1Client) FloatingIPs(namespace string) FloatingIPInterface {
-	return newFloatingIPs(c, namespace)
+func (c *K8sV1Client) FloatingIPs() FloatingIPInterface {
+	return newFloatingIPs(c)
 }
 
 // NewForConfig creates a new K8sV1Client for the given config.

@@ -21,7 +21,3 @@ package v1
 // FloatingIPListerExpansion allows custom methods to be added to
 // FloatingIPLister.
 type FloatingIPListerExpansion interface{}
-
-// FloatingIPNamespaceListerExpansion allows custom methods to be added to
-// FloatingIPNamespaceLister.
-type FloatingIPNamespaceListerExpansion interface{}

@@ -41,5 +41,5 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 
 // FloatingIPs returns a FloatingIPInformer.
 func (v *version) FloatingIPs() FloatingIPInformer {
-	return &floatingIPInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+	return &floatingIPInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }

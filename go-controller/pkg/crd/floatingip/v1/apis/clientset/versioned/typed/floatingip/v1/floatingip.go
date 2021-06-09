@@ -33,7 +33,7 @@ import (
 // FloatingIPsGetter has a method to return a FloatingIPInterface.
 // A group's client should implement this interface.
 type FloatingIPsGetter interface {
-	FloatingIPs(namespace string) FloatingIPInterface
+	FloatingIPs() FloatingIPInterface
 }
 
 // FloatingIPInterface has methods to work with FloatingIP resources.
@@ -52,14 +52,12 @@ type FloatingIPInterface interface {
 // floatingIPs implements FloatingIPInterface
 type floatingIPs struct {
 	client rest.Interface
-	ns     string
 }
 
 // newFloatingIPs returns a FloatingIPs
-func newFloatingIPs(c *K8sV1Client, namespace string) *floatingIPs {
+func newFloatingIPs(c *K8sV1Client) *floatingIPs {
 	return &floatingIPs{
 		client: c.RESTClient(),
-		ns:     namespace,
 	}
 }
 
@@ -67,7 +65,6 @@ func newFloatingIPs(c *K8sV1Client, namespace string) *floatingIPs {
 func (c *floatingIPs) Get(ctx context.Context, name string, options metav1.GetOptions) (result *v1.FloatingIP, err error) {
 	result = &v1.FloatingIP{}
 	err = c.client.Get().
-		Namespace(c.ns).
 		Resource("floatingips").
 		Name(name).
 		VersionedParams(&options, scheme.ParameterCodec).
@@ -84,7 +81,6 @@ func (c *floatingIPs) List(ctx context.Context, opts metav1.ListOptions) (result
 	}
 	result = &v1.FloatingIPList{}
 	err = c.client.Get().
-		Namespace(c.ns).
 		Resource("floatingips").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -101,7 +97,6 @@ func (c *floatingIPs) Watch(ctx context.Context, opts metav1.ListOptions) (watch
 	}
 	opts.Watch = true
 	return c.client.Get().
-		Namespace(c.ns).
 		Resource("floatingips").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -112,7 +107,6 @@ func (c *floatingIPs) Watch(ctx context.Context, opts metav1.ListOptions) (watch
 func (c *floatingIPs) Create(ctx context.Context, floatingIP *v1.FloatingIP, opts metav1.CreateOptions) (result *v1.FloatingIP, err error) {
 	result = &v1.FloatingIP{}
 	err = c.client.Post().
-		Namespace(c.ns).
 		Resource("floatingips").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Body(floatingIP).
@@ -125,7 +119,6 @@ func (c *floatingIPs) Create(ctx context.Context, floatingIP *v1.FloatingIP, opt
 func (c *floatingIPs) Update(ctx context.Context, floatingIP *v1.FloatingIP, opts metav1.UpdateOptions) (result *v1.FloatingIP, err error) {
 	result = &v1.FloatingIP{}
 	err = c.client.Put().
-		Namespace(c.ns).
 		Resource("floatingips").
 		Name(floatingIP.Name).
 		VersionedParams(&opts, scheme.ParameterCodec).
@@ -138,7 +131,6 @@ func (c *floatingIPs) Update(ctx context.Context, floatingIP *v1.FloatingIP, opt
 // Delete takes name of the floatingIP and deletes it. Returns an error if one occurs.
 func (c *floatingIPs) Delete(ctx context.Context, name string, opts metav1.DeleteOptions) error {
 	return c.client.Delete().
-		Namespace(c.ns).
 		Resource("floatingips").
 		Name(name).
 		Body(&opts).
@@ -153,7 +145,6 @@ func (c *floatingIPs) DeleteCollection(ctx context.Context, opts metav1.DeleteOp
 		timeout = time.Duration(*listOpts.TimeoutSeconds) * time.Second
 	}
 	return c.client.Delete().
-		Namespace(c.ns).
 		Resource("floatingips").
 		VersionedParams(&listOpts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -166,7 +157,6 @@ func (c *floatingIPs) DeleteCollection(ctx context.Context, opts metav1.DeleteOp
 func (c *floatingIPs) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions, subresources ...string) (result *v1.FloatingIP, err error) {
 	result = &v1.FloatingIP{}
 	err = c.client.Patch(pt).
-		Namespace(c.ns).
 		Resource("floatingips").
 		Name(name).
 		SubResource(subresources...).

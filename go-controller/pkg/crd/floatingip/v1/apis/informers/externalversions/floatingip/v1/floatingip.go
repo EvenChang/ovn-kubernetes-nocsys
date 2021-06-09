@@ -42,33 +42,32 @@ type FloatingIPInformer interface {
 type floatingIPInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
-	namespace        string
 }
 
 // NewFloatingIPInformer constructs a new informer for FloatingIP type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFloatingIPInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredFloatingIPInformer(client, namespace, resyncPeriod, indexers, nil)
+func NewFloatingIPInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredFloatingIPInformer(client, resyncPeriod, indexers, nil)
 }
 
 // NewFilteredFloatingIPInformer constructs a new informer for FloatingIP type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredFloatingIPInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredFloatingIPInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.K8sV1().FloatingIPs(namespace).List(context.TODO(), options)
+				return client.K8sV1().FloatingIPs().List(context.TODO(), options)
 			},
 			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.K8sV1().FloatingIPs(namespace).Watch(context.TODO(), options)
+				return client.K8sV1().FloatingIPs().Watch(context.TODO(), options)
 			},
 		},
 		&floatingipv1.FloatingIP{},
@@ -78,7 +77,7 @@ func NewFilteredFloatingIPInformer(client versioned.Interface, namespace string,
 }
 
 func (f *floatingIPInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredFloatingIPInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewFilteredFloatingIPInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
 func (f *floatingIPInformer) Informer() cache.SharedIndexInformer {

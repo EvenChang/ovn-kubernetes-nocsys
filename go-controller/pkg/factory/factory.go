@@ -288,7 +288,6 @@ func NewNodeWatchFactory(ovnClientset *util.OVNClientset, nodeName string) (*Wat
 	wf.fiFactory.InformerFor(&floatingipv1.FloatingIP{}, func(c floatingipversioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
 		return v1floatingipinformers.NewFilteredFloatingIPInformer(
 		    c,
-		    kapi.NamespaceAll,
 		    resyncPeriod,
 		    cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc},
 		    func(opts *metav1.ListOptions) {

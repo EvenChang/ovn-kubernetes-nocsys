@@ -28,8 +28,8 @@ type FakeK8sV1 struct {
 	*testing.Fake
 }
 
-func (c *FakeK8sV1) FloatingIPs(namespace string) v1.FloatingIPInterface {
-	return &FakeFloatingIPs{c, namespace}
+func (c *FakeK8sV1) FloatingIPs() v1.FloatingIPInterface {
+	return &FakeFloatingIPs{c}
 }
 
 // RESTClient returns a RESTClient that is used to communicate

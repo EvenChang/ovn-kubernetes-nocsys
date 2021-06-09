@@ -33,7 +33,6 @@ import (
 // FakeFloatingIPs implements FloatingIPInterface
 type FakeFloatingIPs struct {
 	Fake *FakeK8sV1
-	ns   string
 }
 
 var floatingipsResource = schema.GroupVersionResource{Group: "k8s.ovn.org", Version: "v1", Resource: "floatingips"}
@@ -43,8 +42,7 @@ var floatingipsKind = schema.GroupVersionKind{Group: "k8s.ovn.org", Version: "v1
 // Get takes name of the floatingIP, and returns the corresponding floatingIP object, and an error if there is any.
 func (c *FakeFloatingIPs) Get(ctx context.Context, name string, options v1.GetOptions) (result *floatingipv1.FloatingIP, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewGetAction(floatingipsResource, c.ns, name), &floatingipv1.FloatingIP{})
-
+		Invokes(testing.NewRootGetAction(floatingipsResource, name), &floatingipv1.FloatingIP{})
 	if obj == nil {
 		return nil, err
 	}
@@ -54,8 +52,7 @@ func (c *FakeFloatingIPs) Get(ctx context.Context, name string, options v1.GetOp
 // List takes label and field selectors, and returns the list of FloatingIPs that match those selectors.
 func (c *FakeFloatingIPs) List(ctx context.Context, opts v1.ListOptions) (result *floatingipv1.FloatingIPList, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewListAction(floatingipsResource, floatingipsKind, c.ns, opts), &floatingipv1.FloatingIPList{})
-
+		Invokes(testing.NewRootListAction(floatingipsResource, floatingipsKind, opts), &floatingipv1.FloatingIPList{})
 	if obj == nil {
 		return nil, err
 	}
@@ -76,15 +73,13 @@ func (c *FakeFloatingIPs) List(ctx context.Context, opts v1.ListOptions) (result
 // Watch returns a watch.Interface that watches the requested floatingIPs.
 func (c *FakeFloatingIPs) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
-		InvokesWatch(testing.NewWatchAction(floatingipsResource, c.ns, opts))
-
+		InvokesWatch(testing.NewRootWatchAction(floatingipsResource, opts))
 }
 
 // Create takes the representation of a floatingIP and creates it.  Returns the server's representation of the floatingIP, and an error, if there is any.
 func (c *FakeFloatingIPs) Create(ctx context.Context, floatingIP *floatingipv1.FloatingIP, opts v1.CreateOptions) (result *floatingipv1.FloatingIP, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewCreateAction(floatingipsResource, c.ns, floatingIP), &floatingipv1.FloatingIP{})
-
+		Invokes(testing.NewRootCreateAction(floatingipsResource, floatingIP), &floatingipv1.FloatingIP{})
 	if obj == nil {
 		return nil, err
 	}
@@ -94,8 +89,7 @@ func (c *FakeFloatingIPs) Create(ctx context.Context, floatingIP *floatingipv1.F
 // Update takes the representation of a floatingIP and updates it. Returns the server's representation of the floatingIP, and an error, if there is any.
 func (c *FakeFloatingIPs) Update(ctx context.Context, floatingIP *floatingipv1.FloatingIP, opts v1.UpdateOptions) (result *floatingipv1.FloatingIP, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewUpdateAction(floatingipsResource, c.ns, floatingIP), &floatingipv1.FloatingIP{})
-
+		Invokes(testing.NewRootUpdateAction(floatingipsResource, floatingIP), &floatingipv1.FloatingIP{})
 	if obj == nil {
 		return nil, err
 	}
@@ -105,14 +99,13 @@ func (c *FakeFloatingIPs) Update(ctx context.Context, floatingIP *floatingipv1.F
 // Delete takes name of the floatingIP and deletes it. Returns an error if one occurs.
 func (c *FakeFloatingIPs) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	_, err := c.Fake.
-		Invokes(testing.NewDeleteAction(floatingipsResource, c.ns, name), &floatingipv1.FloatingIP{})
-
+		Invokes(testing.NewRootDeleteAction(floatingipsResource, name), &floatingipv1.FloatingIP{})
 	return err
 }
 
 // DeleteCollection deletes a collection of objects.
 func (c *FakeFloatingIPs) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	action := testing.NewDeleteCollectionAction(floatingipsResource, c.ns, listOpts)
+	action := testing.NewRootDeleteCollectionAction(floatingipsResource, listOpts)
 
 	_, err := c.Fake.Invokes(action, &floatingipv1.FloatingIPList{})
 	return err
@@ -121,8 +114,7 @@ func (c *FakeFloatingIPs) DeleteCollection(ctx context.Context, opts v1.DeleteOp
 // Patch applies the patch and returns the patched floatingIP.
 func (c *FakeFloatingIPs) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *floatingipv1.FloatingIP, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewPatchSubresourceAction(floatingipsResource, c.ns, name, pt, data, subresources...), &floatingipv1.FloatingIP{})
-
+		Invokes(testing.NewRootPatchSubresourceAction(floatingipsResource, name, pt, data, subresources...), &floatingipv1.FloatingIP{})
 	if obj == nil {
 		return nil, err
 	}
