@@ -24,6 +24,9 @@ type FloatingIPSpec struct {
 	// Pod assigned to floating ip
 	Pod string `json:"pod"`
 
+	// PodNamespace is namespace of the pod assigned to floating ip
+	PodNamespace string `json:"podNamespace"`
+
 	// Node assigned to floating ip
 	Node string `json:"node"`
 
