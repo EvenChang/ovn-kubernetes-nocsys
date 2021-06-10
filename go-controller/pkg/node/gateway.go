@@ -150,7 +150,15 @@ func (g *gateway) UpdateFloatingIP(old, new *floatingipv1.FloatingIP) {
 }
 
 func (g *gateway) SyncFloatingIP(objs []interface{}) {
-
+    for _, floatingIPInterface := range objs {
+    	fip, ok := floatingIPInterface.(*floatingipv1.FloatingIP)
+    	if !ok {
+    		klog.Errorf("Spurious object in syncFloatingiP: %v", floatingIPInterface)
+    		continue
+		}
+		g.updateFloatingIPFlowCache(fip, true)
+	}
+	g.openflowManager.requestFlowSync()
 }
 
 func (g *gateway) DeleteFloatingIP(fip *floatingipv1.FloatingIP) {
