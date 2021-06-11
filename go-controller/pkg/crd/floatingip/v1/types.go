@@ -14,6 +14,10 @@ type FloatingIP struct {
 
 	// Specification of the desired behavior of FloatingIPClaim.
 	Spec FloatingIPSpec `json:"spec"`
+
+	// Observed status of FloatingIP. Read-only.
+	// +optional
+	Status FloatingIPStatus `json:"status,omitempty"`
 }
 
 // FloatingIPSpec is a desired state description of FloatingIP.
@@ -33,6 +37,27 @@ type FloatingIPSpec struct {
 	// Assigned floating ip address
 	FloatingIP string `json:"floatingIP"`
 }
+
+type FloatingIPStatus struct {
+	// The phase of a floating ip.
+	// +optional
+	Phase FloatingIPPhase `json:"phase,omitempty" protobuf:"bytes,1,opt,name=phase,casttype=FloatingIPPhase"`
+
+	// +optional
+	Verified bool `json:"verified,omitempty" protobuf:"bytes,2,opt,name=verified"`
+}
+
+type FloatingIPPhase string
+
+// These are the valid statuses of floatingip
+const (
+	// FloatingIPCreating means the floating ip has been verified, and will be creating
+	FloatingIPCreating FloatingIPPhase = "Creating"
+	// FloatingIPSucceeded means the floating ip has been creating successful.
+	FloatingIPSucceeded FloatingIPPhase = "Succeeded"
+	// FloatingIPFailed means some errors happened.
+	FloatingIPFailed FloatingIPPhase = "Failed"
+)
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +resource:path=floatingip
