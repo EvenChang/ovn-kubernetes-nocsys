@@ -754,33 +754,41 @@ func (oc *Controller) WatchFloatingIP() {
 	oc.watchFactory.AddFloatingIPHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			fIP := obj.(*floatingipv1.FloatingIP).DeepCopy()
-			if err := oc.addFloatingIP(fIP); err != nil {
-				klog.Error(err)
-			}
-			if err := oc.updateFloatingIPWithRetry(fIP); err != nil {
-				klog.Error(err)
+			if fIP.Status.Verified {
+				if err := oc.addFloatingIP(fIP); err != nil {
+					klog.Error(err)
+				}
+				if err := oc.updateFloatingIPWithRetry(fIP); err != nil {
+					klog.Error(err)
+				}
 			}
 		},
 		UpdateFunc: func(old, new interface{}) {
             oldFIP := old.(*floatingipv1.FloatingIP)
             newFIP := new.(*floatingipv1.FloatingIP).DeepCopy()
             if !reflect.DeepEqual(oldFIP.Spec, newFIP.Spec) {
-            	if err := oc.deleteFloatingIP(oldFIP); err != nil {
-            		klog.Error(err)
+            	if oldFIP.Status.Verified {
+					if err := oc.deleteFloatingIP(oldFIP); err != nil {
+						klog.Error(err)
+					}
 				}
 
-				if err := oc.addFloatingIP(newFIP); err != nil {
-					klog.Error(err)
-				}
-				if err := oc.updateFloatingIPWithRetry(newFIP); err != nil {
-					klog.Error(err)
+                if newFIP.Status.Verified {
+					if err := oc.addFloatingIP(newFIP); err != nil {
+						klog.Error(err)
+					}
+					if err := oc.updateFloatingIPWithRetry(newFIP); err != nil {
+						klog.Error(err)
+					}
 				}
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
             fIP := obj.(*floatingipv1.FloatingIP)
-            if err := oc.deleteFloatingIP(fIP); err != nil {
-            	klog.Error(err)
+            if fIP.Status.Verified {
+				if err := oc.deleteFloatingIP(fIP); err != nil {
+					klog.Error(err)
+				}
 			}
 		},
 	}, oc.syncFloatingIPs)

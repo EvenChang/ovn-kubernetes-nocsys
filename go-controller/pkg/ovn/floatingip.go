@@ -25,7 +25,13 @@ func (oc *Controller) addFloatingIP(fIP *floatingipv1.FloatingIP) error {
 		return nil
 	}
 
-	if err = oc.fIPC.addPodFloatingIP(fIP, pod); err != nil {
+	podIPs := getPodIPs(pod)
+	if podIPs == nil {
+		klog.Errorf("Add FloatingIP failed for: %v as the pod has not been assigned ip address", fIP)
+		return nil
+	}
+
+	if err = oc.fIPC.addPodFloatingIP(podIPs, fIP); err != nil {
 		return fmt.Errorf("unable to add pod(%s/%s)'s FloatingIP: %s, err: %v", pod.Namespace, pod.Name, fIP.Name, err)
 	}
 	return nil
@@ -41,15 +47,28 @@ func (oc *Controller) deleteFloatingIP(fIP *floatingipv1.FloatingIP) error {
 		return nil
 	}
 
-	if err = oc.fIPC.deletePodFloatingIP(fIP, pod); err != nil {
+	podIPs := getPodIPs(pod)
+	if podIPs == nil {
+		klog.Errorf("Deleting FloatingIP failed for: %v as the pod has not been assigned ip address", fIP)
+		return nil
+	}
+
+	if err = oc.fIPC.deletePodFloatingIP(podIPs, fIP); err != nil {
 		return fmt.Errorf("unable to delete pod(%s/%s)'s FloatingIP: %s, err: %v", pod.Namespace, pod.Name, fIP.Name, err)
 	}
 
 	return nil
 }
 
-func (oc *Controller) syncFloatingIPs(fIPs []interface{}) {
-
+func (oc *Controller) syncFloatingIPs(objs []interface{}) {
+    for _, floatingIPInterface := range objs {
+    	fIP, ok := floatingIPInterface.(*floatingipv1.FloatingIP)
+    	if !ok {
+    		klog.Errorf("Spurious object in syncFloatinIP: %v", floatingIPInterface)
+    		continue
+		}
+		oc.addFloatingIP(fIP)
+	}
 }
 
 func (oc *Controller) updateFloatingIPWithRetry(fIP *floatingipv1.FloatingIP) error{
@@ -84,48 +103,25 @@ func findOneToOneNatIDs(floatingIPName, podIP, floatingIP string) ([]string, err
 }
 
 type floatingIPController struct {
-	// Cache used for retrying pods which did not have an IP address when we processed the FloatingIP object
-	podRetry sync.Map
-
 	// Cache of gateway join router IPs, usefull since these should not change often
 	gatewayIPCache sync.Map
 }
 
-func (f *floatingIPController) addPodFloatingIP(fIP *floatingipv1.FloatingIP, pod *kapi.Pod) error {
-	if pod.Spec.HostNetwork {
-		return nil
-	}
-	podIPs := getPodIPs(pod)
-	if podIPs == nil {
-		f.podRetry.Store(getPodKey(pod), true)
-		return nil
-	}
-	if f.needsRetry(pod) {
-		f.podRetry.Delete(getPodKey(pod))
-	}
-
-	if err := f.createReroutePolicy(podIPs, fIP.Spec, fIP.Name); err != nil {
+func (f *floatingIPController) addPodFloatingIP(podIPs []net.IP, fip *floatingipv1.FloatingIP) error {
+	if err := f.createReroutePolicy(podIPs, fip.Spec, fip.Name); err != nil {
 		return err
 	}
-	if err := f.createNATRule(podIPs, fIP.Spec, fIP.Name); err != nil {
+	if err := f.createNATRule(podIPs, fip.Spec, fip.Name); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (f *floatingIPController) deletePodFloatingIP(fIP *floatingipv1.FloatingIP, pod *kapi.Pod) error {
-	if pod.Spec.HostNetwork {
-		return nil
-	}
-	podIPs := getPodIPs(pod)
-	if podIPs == nil {
-		return nil
-	}
-
-	if err := f.deleteReroutePolicy(podIPs, fIP.Spec, fIP.Name); err != nil {
+func (f *floatingIPController) deletePodFloatingIP(podIPs []net.IP, fip *floatingipv1.FloatingIP) error {
+	if err := f.deleteReroutePolicy(podIPs, fip.Spec, fip.Name); err != nil {
 		return err
 	}
-	if err := f.deleteNATRule(podIPs, fIP.Spec, fIP.Name); err != nil {
+	if err := f.deleteNATRule(podIPs, fip.Spec, fip.Name); err != nil {
 		return err
 	}
 	return nil
@@ -133,9 +129,9 @@ func (f *floatingIPController) deletePodFloatingIP(fIP *floatingipv1.FloatingIP,
 
 func (f *floatingIPController) createReroutePolicy(podIPs []net.IP, spec floatingipv1.FloatingIPSpec, fIPName string) error {
     isFloatingIPv6 := utilnet.IsIPv6String(spec.FloatingIP)
-    gatewayRouterIP, err := f.getGatewayRouterJoinIP(spec.Node, isFloatingIPv6)
+    gatewayRouterIP, err := f.getGatewayRouterJoinIP(spec.NodeName, isFloatingIPv6)
     if err!= nil {
-    	return fmt.Errorf("unable to retrieve gateway IP for node: %s, err: %v", spec.Node, err)
+    	return fmt.Errorf("unable to retrieve gateway IP for node: %s, err: %v", spec.NodeName, err)
 	}
 	for _, podIP := range podIPs {
 		var err error
@@ -176,9 +172,9 @@ func (f *floatingIPController) createReroutePolicy(podIPs []net.IP, spec floatin
 
 func (f *floatingIPController) deleteReroutePolicy(podIPs []net.IP, spec floatingipv1.FloatingIPSpec, fIPName string) error {
 	isFloatingIPv6 := utilnet.IsIPv6String(spec.FloatingIP)
-	gatewayRouterIP, err := f.getGatewayRouterJoinIP(spec.Node, isFloatingIPv6)
+	gatewayRouterIP, err := f.getGatewayRouterJoinIP(spec.NodeName, isFloatingIPv6)
 	if err != nil {
-		return fmt.Errorf("unable to retrieve gateway IP for node: %s, err: %v", spec.Node, err)
+		return fmt.Errorf("unable to retrieve gateway IP for node: %s, err: %v", spec.NodeName, err)
 	}
 	for _, podIP := range podIPs {
 		var filterOption string
@@ -220,14 +216,14 @@ func (f *floatingIPController) createNATRule(podIPs []net.IP, spec floatingipv1.
 					"create",
 					"nat",
 					"type=dnat_and_snat",
-					fmt.Sprintf("logical_port=k8s-%s", spec.Node),
+					fmt.Sprintf("logical_port=k8s-%s", spec.NodeName),
 					fmt.Sprintf("external_ip=\"%s\"", spec.FloatingIP),
 					fmt.Sprintf("logical_ip=\"%s\"", podIP),
 					fmt.Sprintf("external_ids:name=%s", fIPName),
 					"--",
 					"add",
 					"logical_router",
-					util.GetGatewayRouterFromNode(spec.Node),
+					util.GetGatewayRouterFromNode(spec.NodeName),
 					"nat",
 					"@nat",
 				)
@@ -251,7 +247,7 @@ func (f *floatingIPController) deleteNATRule(podIPs []net.IP, spec floatingipv1.
 				_, stderr, err := util.RunOVNNbctl(
 					"remove",
 					"logica_router",
-					util.GetGatewayRouterFromNode(spec.Node),
+					util.GetGatewayRouterFromNode(spec.NodeName),
 					"nat",
 					natID,
 					)
@@ -262,11 +258,6 @@ func (f *floatingIPController) deleteNATRule(podIPs []net.IP, spec floatingipv1.
 		}
 	}
 	return nil
-}
-
-func (f *floatingIPController) needsRetry(pod *kapi.Pod) bool {
-	_, retry := f.podRetry.Load(getPodKey(pod))
-	return retry
 }
 
 func (f *floatingIPController) getGatewayRouterJoinIP(node string, wantsIPv6 bool) (net.IP, error) {

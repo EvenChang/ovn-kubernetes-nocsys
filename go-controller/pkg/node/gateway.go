@@ -125,27 +125,36 @@ func (g *gateway) DeleteEndpoints(ep *kapi.Endpoints) {
 }
 
 func (g *gateway) AddFloatingIP(fip *floatingipv1.FloatingIP) {
+	if !fip.Status.Verified {
+		klog.V(5).Infof("Skipping Floating IP creating for: %v which is not verified", fip)
+		return
+	}
     g.updateFloatingIPFlowCache(fip, true)
     g.openflowManager.requestFlowSync()
 }
 
 func (g *gateway) UpdateFloatingIP(old, new *floatingipv1.FloatingIP) {
-    if reflect.DeepEqual(new.Spec.Node, old.Spec.Node) &&
+    if reflect.DeepEqual(new.Spec.NodeName, old.Spec.NodeName) &&
     	reflect.DeepEqual(new.Spec.Pod, old.Spec.Pod) &&
-    	reflect.DeepEqual(new.Spec.FloatingIP, old.Spec.FloatingIP) {
+    	reflect.DeepEqual(new.Spec.FloatingIP, old.Spec.FloatingIP) &&
+    	old.Status.Verified == new.Status.Verified {
 		klog.V(5).Infof("Skipping Floating IP update for: %s as change does not apply to any of"+
 			".Spec.Node, .Spec.Pod, .Spec.FloatingIP", new.Name)
 		return
 	}
 
-	if strings.Compare(old.Spec.Node, new.Spec.Node) != 0 {
+	if strings.Compare(old.Spec.NodeName, new.Spec.NodeName) != 0 {
 		klog.Errorf("Invalid Floating IP update for: %s. When node change, Floating IP should be delete " +
 			"and recreate", old.Name)
 		return
 	}
 
-	g.updateFloatingIPFlowCache(old, false)
-    g.updateFloatingIPFlowCache(new, true)
+	if old.Status.Verified {
+		g.updateFloatingIPFlowCache(old, false)
+	}
+    if new.Status.Verified {
+    	g.updateFloatingIPFlowCache(new, true)
+	}
     g.openflowManager.requestFlowSync()
 }
 
@@ -156,12 +165,22 @@ func (g *gateway) SyncFloatingIP(objs []interface{}) {
     		klog.Errorf("Spurious object in syncFloatingiP: %v", floatingIPInterface)
     		continue
 		}
+
+		if !fip.Status.Verified {
+			klog.V(5).Infof("Skip Floating IP creating for: %v which is not verified", fip)
+			continue
+		}
+
 		g.updateFloatingIPFlowCache(fip, true)
 	}
 	g.openflowManager.requestFlowSync()
 }
 
 func (g *gateway) DeleteFloatingIP(fip *floatingipv1.FloatingIP) {
+	if !fip.Status.Verified {
+		klog.V(5).Infof("Skipping Floating IP delete for: %v which is not verified", fip)
+		return
+	}
     g.updateFloatingIPFlowCache(fip, false)
     g.openflowManager.requestFlowSync()
 }
@@ -171,13 +190,13 @@ func (g *gateway) updateFloatingIPFlowCache(fip *floatingipv1.FloatingIP, add bo
 	var err error
 
 	spec := fip.Spec
-	cookie, err = FloatingIPToCookie(spec.Node, spec.Pod, spec.FloatingIP)
+	cookie, err = FloatingIPToCookie(spec.NodeName, spec.Pod, spec.FloatingIP)
 	if err != nil {
 		klog.Warningf("Unable to generate cookie for FloatingI: %s, %s, %s, error: %v",
-			spec.Node, spec.Pod, spec.FloatingIP)
+			spec.NodeName, spec.Pod, spec.FloatingIP)
 		cookie = "0"
 	}
-	key = strings.Join([]string{"FloatingIP", spec.Node, spec.Pod, spec.FloatingIP}, "_")
+	key = strings.Join([]string{"FloatingIP", spec.NodeName, spec.Pod, spec.FloatingIP}, "_")
 	if !add {
 		g.openflowManager.deleteFlowsByKey(key)
 	} else {
