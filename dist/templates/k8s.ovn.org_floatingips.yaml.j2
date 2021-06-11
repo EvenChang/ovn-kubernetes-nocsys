@@ -4,7 +4,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.5.0
+    controller-gen.kubebuilder.io/version: v0.6.0
   creationTimestamp: null
   name: floatingips.k8s.ovn.org
 spec:
@@ -43,17 +43,31 @@ spec:
               floatingIPClaim:
                 description: floating ip claim name
                 type: string
-              node:
+              nodeName:
                 description: Node assigned to floating ip
                 type: string
               pod:
                 description: Pod assigned to floating ip
                 type: string
+              podNamespace:
+                description: PodNamespace is namespace of the pod assigned to floating
+                  ip
+                type: string
             required:
             - floatingIP
             - floatingIPClaim
-            - node
+            - nodeName
             - pod
+            - podNamespace
+            type: object
+          status:
+            description: Observed status of FloatingIP. Read-only.
+            properties:
+              phase:
+                description: The phase of a floating ip.
+                type: string
+              verified:
+                type: boolean
             type: object
         required:
         - spec

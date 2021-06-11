@@ -32,7 +32,7 @@ type FloatingIPSpec struct {
 	PodNamespace string `json:"podNamespace"`
 
 	// Node assigned to floating ip
-	Node string `json:"node"`
+	NodeName string `json:"nodeName"`
 
 	// Assigned floating ip address
 	FloatingIP string `json:"floatingIP"`
