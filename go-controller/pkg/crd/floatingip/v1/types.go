@@ -8,6 +8,10 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 // +resource:path=floatingip
 // +kubebuilder:resource:shortName=fi
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +kubebuilder:printcolumn:name="FloatingIPClaim",type=string,JSONPath=".spec.floatingIPClaim"
+// +kubebuilder:printcolumn:name="Pod",type=string,JSONPath=".spec.pod"
+// +kubebuilder:printcolumn:name="Node",type=string,JSONPath=".spec.nodeName"
+// +kubebuilder:printcolumn:name="FloatingIP",type=string,JSONPath=".spec.floatingIP"
 type FloatingIP struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -29,22 +33,25 @@ type FloatingIPSpec struct {
 	Pod string `json:"pod"`
 
 	// PodNamespace is namespace of the pod assigned to floating ip
+	// +optional
 	PodNamespace string `json:"podNamespace"`
 
 	// Node assigned to floating ip
+	// +optional
 	NodeName string `json:"nodeName"`
 
 	// Assigned floating ip address
+	// +optional
 	FloatingIP string `json:"floatingIP"`
 }
 
 type FloatingIPStatus struct {
 	// The phase of a floating ip.
 	// +optional
-	Phase FloatingIPPhase `json:"phase,omitempty" protobuf:"bytes,1,opt,name=phase,casttype=FloatingIPPhase"`
+	Phase FloatingIPPhase `json:"phase,omitempty"`
 
 	// +optional
-	Verified bool `json:"verified,omitempty" protobuf:"bytes,2,opt,name=verified"`
+	Verified bool `json:"verified,omitempty"`
 }
 
 type FloatingIPPhase string

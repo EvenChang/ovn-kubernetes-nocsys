@@ -44,6 +44,7 @@ type gateway struct {
 	nodeIPManager    *addressManager
 	initFunc         func() error
 	readyFunc        func() (bool, error)
+	nodeName         string
 }
 
 func (g *gateway) AddService(svc *kapi.Service) {
@@ -125,6 +126,11 @@ func (g *gateway) DeleteEndpoints(ep *kapi.Endpoints) {
 }
 
 func (g *gateway) AddFloatingIP(fip *floatingipv1.FloatingIP) {
+	if strings.Compare(fip.Spec.NodeName, g.nodeName) != 0 {
+		klog.V(5).Infof("Skipping Floating IP creating for: %v which is not assigned to this node", fip)
+		return
+	}
+
 	if !fip.Status.Verified {
 		klog.V(5).Infof("Skipping Floating IP creating for: %v which is not verified", fip)
 		return
@@ -134,11 +140,16 @@ func (g *gateway) AddFloatingIP(fip *floatingipv1.FloatingIP) {
 }
 
 func (g *gateway) UpdateFloatingIP(old, new *floatingipv1.FloatingIP) {
+	if strings.Compare(new.Spec.NodeName, g.nodeName) != 0 {
+		klog.V(5).Infof("Skipping Floating IP updating for: %v which is not assigned to this node", new)
+		return
+	}
+
     if reflect.DeepEqual(new.Spec.NodeName, old.Spec.NodeName) &&
     	reflect.DeepEqual(new.Spec.Pod, old.Spec.Pod) &&
     	reflect.DeepEqual(new.Spec.FloatingIP, old.Spec.FloatingIP) &&
     	old.Status.Verified == new.Status.Verified {
-		klog.V(5).Infof("Skipping Floating IP update for: %s as change does not apply to any of"+
+		klog.V(5).Infof("Skipping Floating IP updating for: %s as change does not apply to any of"+
 			".Spec.Node, .Spec.Pod, .Spec.FloatingIP", new.Name)
 		return
 	}
@@ -162,8 +173,13 @@ func (g *gateway) SyncFloatingIP(objs []interface{}) {
     for _, floatingIPInterface := range objs {
     	fip, ok := floatingIPInterface.(*floatingipv1.FloatingIP)
     	if !ok {
-    		klog.Errorf("Spurious object in syncFloatingiP: %v", floatingIPInterface)
+    		klog.Errorf("Spurious object in sync Floating IP: %v", floatingIPInterface)
     		continue
+		}
+
+		if strings.Compare(fip.Spec.NodeName, g.nodeName) != 0 {
+			klog.V(5).Infof("Skipping Floating IP syncing for: %v which is not assigned to this node", fip)
+			continue
 		}
 
 		if !fip.Status.Verified {
@@ -177,6 +193,11 @@ func (g *gateway) SyncFloatingIP(objs []interface{}) {
 }
 
 func (g *gateway) DeleteFloatingIP(fip *floatingipv1.FloatingIP) {
+	if strings.Compare(fip.Spec.NodeName, g.nodeName) != 0 {
+		klog.V(5).Infof("Skipping Floating IP deleting for: %v which is not assigned to this node", fip)
+		return
+	}
+
 	if !fip.Status.Verified {
 		klog.V(5).Infof("Skipping Floating IP delete for: %v which is not verified", fip)
 		return

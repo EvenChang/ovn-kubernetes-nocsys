@@ -19,11 +19,8 @@ import (
 	egressipinformerfactory "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1/apis/informers/externalversions"
 
 	floatingipapi "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1"
-	floatingipv1 "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1"
-	floatingipversioned "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/clientset/versioned"
 	floatingipscheme "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/clientset/versioned/scheme"
 	floatingipfactory "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/informers/externalversions"
-	v1floatingipinformers "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/informers/externalversions/floatingip/v1"
 	floatingipclaimapi "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1"
 	floatingipclaimscheme "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1/apis/clientset/versioned/scheme"
 	floatingipclaimfactory "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1/apis/informers/externalversions"
@@ -282,17 +279,6 @@ func NewNodeWatchFactory(ovnClientset *util.OVNClientset, nodeName string) (*Wat
 			func(opts *metav1.ListOptions) {
 				opts.FieldSelector = fields.OneTermEqualSelector("spec.nodeName", nodeName).String()
 			})
-	})
-
-	// For FloatingIPs, only select floaingIPs assigned to this node
-	wf.fiFactory.InformerFor(&floatingipv1.FloatingIP{}, func(c floatingipversioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-		return v1floatingipinformers.NewFilteredFloatingIPInformer(
-		    c,
-		    resyncPeriod,
-		    cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc},
-		    func(opts *metav1.ListOptions) {
-			    opts.FieldSelector = fields.OneTermEqualSelector("spec.Node", nodeName).String()
-		    })
 	})
 
 	var err error

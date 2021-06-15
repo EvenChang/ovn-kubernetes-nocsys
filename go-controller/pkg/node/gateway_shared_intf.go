@@ -450,6 +450,7 @@ func newSharedGatewayOpenFlowManager(patchPort, macAddress, gwBridge, gwIntf str
 func newSharedGateway(nodeName string, subnets []*net.IPNet, gwNextHops []net.IP, gwIntf string, nodeAnnotator kube.Annotator) (*gateway, error) {
 	klog.Info("Creating new shared gateway")
 	gw := &gateway{}
+	gw.nodeName = nodeName
 
 	bridgeName, uplinkName, macAddress, ips, err := gatewayInitInternal(
 		nodeName, gwIntf, subnets, gwNextHops, nodeAnnotator)
