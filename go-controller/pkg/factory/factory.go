@@ -204,7 +204,7 @@ func NewMasterWatchFactory(ovnClientset *util.OVNClientset) (*WatchFactory, erro
 		}
 
 	}
-
+	
 	wf.informers[floatingIPProviderType], err = newInformer(floatingIPProviderType, wf.fipFactory.K8s().V1().FloatingIPProviders().Informer())
 	if err != nil {
 		return nil, err
@@ -225,7 +225,7 @@ func NewMasterWatchFactory(ovnClientset *util.OVNClientset) (*WatchFactory, erro
 			return nil, fmt.Errorf("error in syncing cache for %v informer", oType)
 		}
 	}
-	wf.informers[floatingIPType], err = newQueuedInformer(floatingIPType, wf.fiFactory.K8s().V1().FloatingIPs().Informer(), wf.stopChan)
+	wf.informers[floatingIPType], err = newInformer(floatingIPType, wf.fiFactory.K8s().V1().FloatingIPs().Informer())
 	if err != nil {
 		return nil, err
 	}
@@ -387,6 +387,18 @@ func getObjectMeta(objType reflect.Type, obj interface{}) (*metav1.ObjectMeta, e
 	case egressIPType:
 		if egressIP, ok := obj.(*egressipapi.EgressIP); ok {
 			return &egressIP.ObjectMeta, nil
+		}
+	case floatingIPProviderType:
+		if floatingIPProvider, ok := obj.(*floatingipproviderapi.FloatingIPProvider); ok {
+			return &floatingIPProvider.ObjectMeta, nil
+		}
+	case floatingIPClaimType:
+		if floatingIPClaim, ok := obj.(*floatingipclaimapi.FloatingIPClaim); ok {
+			return &floatingIPClaim.ObjectMeta, nil
+		}
+	case floatingIPType:
+		if floatingIP, ok := obj.(*floatingipapi.FloatingIP); ok {
+			return &floatingIP.ObjectMeta, nil
 		}
 	}
 	return nil, fmt.Errorf("cannot get ObjectMeta from type %v", objType)

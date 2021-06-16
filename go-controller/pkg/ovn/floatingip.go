@@ -32,8 +32,11 @@ func (oc *Controller) addFloatingIP(fIP *floatingipv1.FloatingIP) error {
 	}
 
 	if err = oc.fIPC.addPodFloatingIP(podIPs, fIP); err != nil {
+		fIP.Status.Phase = floatingipv1.FloatingIPFailed
 		return fmt.Errorf("unable to add pod(%s/%s)'s FloatingIP: %s, err: %v", pod.Namespace, pod.Name, fIP.Name, err)
 	}
+
+	fIP.Status.Phase = floatingipv1.FloatingIPSucceeded
 	return nil
 }
 
@@ -64,10 +67,23 @@ func (oc *Controller) syncFloatingIPs(objs []interface{}) {
     for _, floatingIPInterface := range objs {
     	fIP, ok := floatingIPInterface.(*floatingipv1.FloatingIP)
     	if !ok {
-    		klog.Errorf("Spurious object in syncFloatinIP: %v", floatingIPInterface)
+    		klog.Errorf("Spurious object in sync Floating IP: %v", floatingIPInterface)
     		continue
 		}
-		oc.addFloatingIP(fIP)
+
+		if !fIP.Status.Verified {
+			klog.V(5).Infof("Skip Floating IP creating for: %v which is not verified", fIP)
+			continue
+		}
+
+		floatingIP := fIP.DeepCopy()
+
+		if err := oc.addFloatingIP(floatingIP); err != nil {
+			klog.Error(err)
+		}
+    	if err := oc.updateFloatingIPWithRetry(floatingIP); err != nil {
+    		klog.Error(err)
+		}
 	}
 }
 
@@ -88,7 +104,7 @@ func findOneToOneNatIDs(floatingIPName, podIP, floatingIP string) ([]string, err
 		"--no-heading",
 		"--columns=_uuid",
 		"find",
-		"dnat_and_snat",
+		"nat",
 		fmt.Sprintf("external_ids:name=%s", floatingIPName),
 		fmt.Sprintf("logical_ip=\"%s\"", podIP),
 		fmt.Sprintf("external_ip=\"%s\"", floatingIP),
@@ -246,7 +262,7 @@ func (f *floatingIPController) deleteNATRule(podIPs []net.IP, spec floatingipv1.
 			for _, natID := range natIDs {
 				_, stderr, err := util.RunOVNNbctl(
 					"remove",
-					"logica_router",
+					"logical_router",
 					util.GetGatewayRouterFromNode(spec.NodeName),
 					"nat",
 					natID,
@@ -293,6 +309,7 @@ func (f *floatingIPController) findReroutePolicyIDs(filterOption, fIPName string
 	policyIDs, stderr, err := util.RunOVNNbctl(
 		"--format=csv",
 		"--data=bare",
+		"--no-heading",
 		"--columns=_uuid",
 		"find",
 		"logical_router_policy",

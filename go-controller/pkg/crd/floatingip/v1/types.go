@@ -6,12 +6,13 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 // +genclient:nonNamespaced
 // +genclient:noStatus
 // +resource:path=floatingip
-// +kubebuilder:resource:shortName=fi
+// +kubebuilder:resource:shortName=fi,scope=Cluster
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:printcolumn:name="FloatingIPClaim",type=string,JSONPath=".spec.floatingIPClaim"
 // +kubebuilder:printcolumn:name="Pod",type=string,JSONPath=".spec.pod"
 // +kubebuilder:printcolumn:name="Node",type=string,JSONPath=".spec.nodeName"
 // +kubebuilder:printcolumn:name="FloatingIP",type=string,JSONPath=".spec.floatingIP"
+// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=".status.Phase"
 type FloatingIP struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
