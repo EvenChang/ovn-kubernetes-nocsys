@@ -156,18 +156,27 @@ spec:
           status:
             description: Observed status of FloatingIPClaim. Read-only.
             properties:
-              assignedIPs:
-                description: Assigned floating IP
+              items:
+                description: The list of assigned floating IPs and their corresponding
+                  node assignment.
                 items:
-                  type: string
-                type: array
-              nodes:
-                items:
-                  type: string
+                  description: The per node status, for those floating IPs who have
+                    been assigned.
+                  properties:
+                    assignedIPs:
+                      description: Assigned floating IP
+                      items:
+                        type: string
+                      type: array
+                    node:
+                      type: string
+                  required:
+                  - assignedIPs
+                  - node
+                  type: object
                 type: array
             required:
-            - assignedIPs
-            - nodes
+            - items
             type: object
         required:
         - spec

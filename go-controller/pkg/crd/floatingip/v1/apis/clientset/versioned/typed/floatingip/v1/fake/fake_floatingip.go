@@ -96,6 +96,17 @@ func (c *FakeFloatingIPs) Update(ctx context.Context, floatingIP *floatingipv1.F
 	return obj.(*floatingipv1.FloatingIP), err
 }
 
+// UpdateStatus was generated because the type contains a Status member.
+// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
+func (c *FakeFloatingIPs) UpdateStatus(ctx context.Context, floatingIP *floatingipv1.FloatingIP, opts v1.UpdateOptions) (*floatingipv1.FloatingIP, error) {
+	obj, err := c.Fake.
+		Invokes(testing.NewRootUpdateSubresourceAction(floatingipsResource, "status", floatingIP), &floatingipv1.FloatingIP{})
+	if obj == nil {
+		return nil, err
+	}
+	return obj.(*floatingipv1.FloatingIP), err
+}
+
 // Delete takes name of the floatingIP and deletes it. Returns an error if one occurs.
 func (c *FakeFloatingIPs) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	_, err := c.Fake.

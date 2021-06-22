@@ -43,6 +43,12 @@ type NodeWatchFactory interface {
 	LocalPodInformer() cache.SharedIndexInformer
 
 	AddFloatingIPHandler(handlerFuncs cache.ResourceEventHandler, processExisting func([]interface{})) *Handler
+	RemoveFloatingIPHandler(handler *Handler)
+
+	AddFloatingIPClaimHandler(handlerFuncs cache.ResourceEventHandler, processExisting func([]interface{})) *Handler
+	RemoveFloatingIPClaimHandler(handler *Handler)
+
+	AddFloatingIPProviderHandler(handlerFuncs cache.ResourceEventHandler, processExisting func([]interface{})) *Handler
 }
 
 type Shutdownable interface {

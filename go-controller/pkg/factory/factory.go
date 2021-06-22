@@ -554,14 +554,30 @@ func (wf *WatchFactory) AddFilteredNodeHandler(sel labels.Selector, handlerFuncs
 	return wf.addHandler(nodeType, "", sel, handlerFuncs, processExisting)
 }
 
-// AddFloatingIPHandler adds a handler function that will be executed on FloatingIP object change
-func (wf *WatchFactory) AddFloatingIPHandler(handlerFuncs cache.ResourceEventHandler, processExisting func([]interface{})) *Handler {
-    return wf.addHandler(floatingIPType, "", nil, handlerFuncs, processExisting)
-}
-
 // RemoveNodeHandler removes a Node object event handler function
 func (wf *WatchFactory) RemoveNodeHandler(handler *Handler) {
 	wf.removeHandler(nodeType, handler)
+}
+
+// AddFloatingIPHandler adds a handler function that will be executed on FloatingIP object change
+func (wf *WatchFactory) AddFloatingIPHandler(handlerFuncs cache.ResourceEventHandler, processExisting func([]interface{})) *Handler {
+	return wf.addHandler(floatingIPType, "", nil, handlerFuncs, processExisting)
+}
+
+func (wf *WatchFactory) RemoveFloatingIPHandler(handler *Handler) {
+	wf.removeHandler(floatingIPType, handler)
+}
+
+func (wf *WatchFactory) AddFloatingIPClaimHandler(handlerFuncs cache.ResourceEventHandler, processExisting func([]interface{})) *Handler {
+	return wf.addHandler(floatingIPClaimType, "", nil, handlerFuncs, processExisting)
+}
+
+func (wf *WatchFactory) RemoveFloatingIPClaimHandler(handler *Handler) {
+	wf.removeHandler(floatingIPClaimType, handler)
+}
+
+func (wf *WatchFactory) AddFloatingIPProviderHandler(handlerFuncs cache.ResourceEventHandler, processExisting func([]interface{})) *Handler {
+	return wf.addHandler(floatingIPProviderType, "", nil, handlerFuncs, processExisting)
 }
 
 // GetPod returns the pod spec given the namespace and pod name

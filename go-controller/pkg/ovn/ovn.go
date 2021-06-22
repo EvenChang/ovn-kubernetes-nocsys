@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	floatingipv1 "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1"
-
 	"net"
 	"reflect"
 	"strconv"
@@ -17,6 +15,8 @@ import (
 	hocontroller "github.com/ovn-org/ovn-kubernetes/go-controller/hybrid-overlay/pkg/controller"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	egressipv1 "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1"
+	floatingipv1 "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1"
+	floatingipclaimv1 "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/factory"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/kube"
 	addressset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/address_set"
@@ -26,11 +26,8 @@ import (
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/subnetallocator"
 	ovntypes "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
-
 	egressfirewall "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressfirewall/v1"
-
 	utilnet "k8s.io/utils/net"
-
 	kapi "k8s.io/api/core/v1"
 	kapisnetworking "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -177,6 +174,10 @@ type Controller struct {
 	// Controller used for floating ip
 	fIPC floatingIPController
 
+	// Controller used for floating ip claim
+	fIPCC floatingIPClaimController
+	fIPNC floatingIPNodeController
+
 	egressFirewallDNS *EgressDNS
 
 	// Is ACL logging enabled while configuring meters?
@@ -248,6 +249,7 @@ func NewOvnController(ovnClient *util.OVNClientset, wf *factory.WatchFactory,
 			EIPClient:            ovnClient.EgressIPClient,
 			EgressFirewallClient: ovnClient.EgressFirewallClient,
 			FIPClient:            ovnClient.FloatingIPClient,
+			FIPCClient:           ovnClient.FloatingIPClaimClient,
 		},
 		watchFactory:              wf,
 		stopChan:                  stopChan,
@@ -271,6 +273,18 @@ func NewOvnController(ovnClient *util.OVNClientset, wf *factory.WatchFactory,
 			podHandlerCache:       make(map[string]factory.Handler),
 			allocatorMutex:        &sync.Mutex{},
 			allocator:             make(map[string]*egressNode),
+		},
+		fIPCC: floatingIPClaimController{
+			operLock: &sync.RWMutex{},
+			runtimes: make(map[string]*floatingIPClaimRuntime),
+			namespaceHandlers: make(map[string]factory.Handler),
+			fipOnPodLock: &sync.Mutex{},
+			fipOnPodCache: make(map[PodID]FipID),
+			fipOnPodPendingCache: make(map[FipID]PodID),
+		},
+		fIPNC: floatingIPNodeController{
+			lock: &sync.Mutex{},
+			allocations: make(map[string]int),
 		},
 		loadbalancerClusterCache: make(map[kapi.Protocol]string),
 		multicastSupport:         config.EnableMulticast,
@@ -313,7 +327,10 @@ func (oc *Controller) Run(wg *sync.WaitGroup, nodeName string) error {
 		oc.WatchEgressIP()
 	}
 
+	oc.WatchFloatingIPNodes()
+	oc.WatchFloatingIPClaim()
 	oc.WatchFloatingIP()
+	oc.WatchFloatingIPPod()
 
 	if config.OVNKubernetesFeature.EnableEgressFirewall {
 		var err error
@@ -754,6 +771,36 @@ func (oc *Controller) WatchEgressIP() {
 func (oc *Controller) WatchFloatingIP() {
 	oc.watchFactory.AddFloatingIPHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
+			fip := obj.(*floatingipv1.FloatingIP)
+			klog.V(5).Infof("floating ip claim: %s has matched on floating ip: %s", fip.Spec.FloatingIPClaim, fip.Name)
+			if err := oc.addFloatingIPToClaim(fip.Spec.FloatingIPClaim, fip); err != nil {
+				klog.Errorf("error: unable to add floating ip %s to floating ip claim: %s, err: %v", fip.Name, fip.Spec.FloatingIPClaim, err)
+			}
+		},
+		DeleteFunc: func(obj interface{}) {
+			fip := obj.(*floatingipv1.FloatingIP)
+			klog.V(5).Infof("floating ip claim: %s stopped matching on floating ip: %s", fip.Spec.FloatingIPClaim, fip.Name)
+			if err := oc.deleteFloatingIPInClaim(fip.Spec.FloatingIPClaim, fip); err != nil {
+				klog.Errorf("error: unable to delete floating ip %s from floating ip claim: %s, err: %v", fip.Name, fip.Spec.FloatingIPClaim, err)
+			}
+		},
+	}, func(objs []interface{}) {
+		for _, obj := range objs {
+			fip := obj.(*floatingipv1.FloatingIP).DeepCopy()
+			if !fip.Status.Verified {
+				continue
+			}
+			fip.Spec.NodeName = ""
+			fip.Spec.FloatingIP = ""
+			fip.Status.Verified = false
+			if err := oc.kube.UpdateFloatingIP(fip); err != nil {
+				klog.Errorf("error: unable to clean up floating ip: %s err: %v", fip.Name, err)
+			}
+		}
+	})
+
+	oc.watchFactory.AddFloatingIPHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
 			fIP := obj.(*floatingipv1.FloatingIP).DeepCopy()
 			if fIP.Status.Verified {
 				if err := oc.addFloatingIP(fIP); err != nil {
@@ -793,6 +840,156 @@ func (oc *Controller) WatchFloatingIP() {
 			}
 		},
 	}, oc.syncFloatingIPs)
+}
+
+func (oc *Controller) WatchFloatingIPNodes() {
+	fiLabel := util.GetNodeFloatingIPLabel()
+	oc.watchFactory.AddNodeHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			node := obj.(*kapi.Node)
+			nodeLabels := node.GetLabels()
+			if _, hasLabel := nodeLabels[fiLabel]; hasLabel {
+				oc.fIPNC.AddNode(node)
+				if err := oc.addFloatingIPNode(node); err != nil {
+					klog.Error(err)
+				}
+			}
+		},
+		UpdateFunc: func(old, new interface{}) {
+			oldNode := old.(*kapi.Node)
+			newNode := new.(*kapi.Node)
+			oldLabels := oldNode.GetLabels()
+			newLabels := newNode.GetLabels()
+			_, oldHasLabel := oldLabels[fiLabel]
+			_, newHasLabel := newLabels[fiLabel]
+			if !oldHasLabel && !newHasLabel {
+				return
+			}
+			if oldHasLabel && !newHasLabel {
+				klog.Infof("Node: %s has been un-labelled, deleting it from floating ip assignment", newNode.Name)
+				oc.fIPNC.DeleteNode(oldNode)
+				if err := oc.deleteFloatingIPNode(oldNode); err != nil {
+					klog.Error(err)
+				}
+				return
+			}
+			if !oldHasLabel && newHasLabel {
+				klog.Infof("Node: %s has been labelled, adding it for floating ip assignment", newNode.Name)
+				oc.fIPNC.AddNode(newNode)
+				if err := oc.addFloatingIPNode(newNode); err != nil {
+					klog.Error(err)
+				}
+				return
+			}
+		},
+		DeleteFunc: func(obj interface{}) {
+			node := obj.(*kapi.Node)
+			nodeLabels := node.GetLabels()
+			if _, hasLabel := nodeLabels[fiLabel]; hasLabel {
+				oc.fIPNC.DeleteNode(node)
+				if err := oc.deleteFloatingIPNode(node); err != nil {
+					klog.Error(err)
+				}
+			}
+		},
+	}, nil)
+}
+
+func (oc *Controller) WatchFloatingIPClaim() {
+	oc.watchFactory.AddFloatingIPClaimHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			fic := obj.(*floatingipclaimv1.FloatingIPClaim)
+			if err := oc.addFloatingIPClaim(fic); err != nil {
+				klog.Error(err)
+			}
+		},
+		UpdateFunc: func(old, new interface{}) {
+			oldFic := old.(*floatingipclaimv1.FloatingIPClaim)
+			newFic := new.(*floatingipclaimv1.FloatingIPClaim).DeepCopy()
+			if !reflect.DeepEqual(oldFic.Spec, newFic.Spec) {
+				if err := oc.deleteFloatingIPClaim(oldFic); err != nil {
+					klog.Error(err)
+				}
+				newFic.Status = floatingipclaimv1.FloatingIPClaimStatus{
+					Items: []floatingipclaimv1.FloatingIPClaimStatusItem{},
+				}
+				if err := oc.addFloatingIPClaim(newFic); err != nil {
+					klog.Error(err)
+				}
+			}
+		},
+		DeleteFunc: func(obj interface{}) {
+			fic := obj.(*floatingipclaimv1.FloatingIPClaim)
+			if err := oc.deleteFloatingIPClaim(fic); err != nil {
+				klog.Error(err)
+			}
+		},
+	}, nil)
+}
+
+func (oc *Controller) WatchFloatingIPPod() {
+	oc.watchFactory.AddPodHandler(cache.ResourceEventHandlerFuncs{
+		UpdateFunc: func(old, new interface{}) {
+			oldPod := old.(*kapi.Pod)
+			newPod := new.(*kapi.Pod)
+			_, oldHas := oldPod.Annotations[fipOnPodAnnotationName]
+			_, newHas := newPod.Annotations[fipOnPodAnnotationName]
+			if !oldHas && !newHas {
+				return
+			}
+			klog.V(5).Infof("floating ip claim: pod %s/%s => %s/%s about to be updated", oldPod.Namespace, oldPod.Name, newPod.Namespace, newPod.Name)
+
+			oc.fIPCC.fipOnPodLock.Lock()
+			defer oc.fIPCC.fipOnPodLock.Unlock()
+			// TODO: Pod network abnormal
+			for k, v := range oc.fIPCC.fipOnPodPendingCache {
+				if v.name == newPod.Name && v.namespace == newPod.Namespace {
+					if runtime := oc.fIPCC.GetRuntime(k.ficName); runtime == nil {
+						delete(oc.fIPCC.fipOnPodPendingCache, k)
+					} else {
+						if fiObj, err := oc.kube.GetFloatingIP(k.fipName); err != nil {
+							klog.Errorf("floating ip claim: unable to list floating ip: %s err: %v", k.fipName, err)
+						} else {
+							if err := oc.verifyFipInClaim(runtime, fiObj); err != nil {
+								klog.Errorf("floating ip claim: unable to verify floating ip: %s err: %v", k.fipName, err)
+							} else {
+								break
+							}
+						}
+					}
+				}
+			}
+		},
+		DeleteFunc: func(obj interface{}) {
+			pod := obj.(*kapi.Pod)
+			if _, has := pod.Annotations[fipOnPodAnnotationName]; !has {
+				return
+			}
+
+			klog.V(5).Infof("floating ip claim: pod %s/%s about to be removed", pod.Namespace, pod.Name)
+			oc.fIPCC.fipOnPodLock.Lock()
+			defer oc.fIPCC.fipOnPodLock.Unlock()
+
+			id := PodID{
+				name: pod.Name,
+				namespace: pod.Namespace,
+			}
+			if fipId, exist := oc.fIPCC.fipOnPodCache[id]; exist {
+				if err := oc.kube.DeleteFloatingIP(fipId.fipName); err != nil {
+					klog.Errorf("floating ip claim: unable to remove floating ip %s from floating ip claim:%s err: %v", fipId.fipName, fipId.ficName, err)
+					return
+				}
+			} else {
+				for k, v := range oc.fIPCC.fipOnPodPendingCache {
+					if v.name == id.name && v.namespace == id.namespace {
+						if err := oc.kube.DeleteFloatingIP(k.fipName); err != nil {
+							klog.Errorf("floating ip claim: unable to remove floating ip %s from floating ip claim:%s err: %v", k.fipName, k.ficName, err)
+						}
+					}
+				}
+			}
+		},
+	}, nil)
 }
 
 // WatchNamespaces starts the watching of namespace resource and calls
