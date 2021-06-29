@@ -71,7 +71,7 @@ func (oc *Controller) syncFloatingIPs(objs []interface{}) {
     		continue
 		}
 
-		if !fIP.Status.Verified {
+		if !util.IsIP(fIP.Status.FloatingIP) {
 			klog.V(5).Infof("Skip Floating IP creating for: %v which is not verified", fIP)
 			continue
 		}
@@ -124,30 +124,30 @@ type floatingIPController struct {
 }
 
 func (f *floatingIPController) addPodFloatingIP(podIPs []net.IP, fip *floatingipv1.FloatingIP) error {
-	if err := f.createReroutePolicy(podIPs, fip.Spec, fip.Name); err != nil {
+	if err := f.createReroutePolicy(podIPs, fip.Status, fip.Name); err != nil {
 		return err
 	}
-	if err := f.createNATRule(podIPs, fip.Spec, fip.Name); err != nil {
+	if err := f.createNATRule(podIPs, fip.Status, fip.Name); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (f *floatingIPController) deletePodFloatingIP(podIPs []net.IP, fip *floatingipv1.FloatingIP) error {
-	if err := f.deleteReroutePolicy(podIPs, fip.Spec, fip.Name); err != nil {
+	if err := f.deleteReroutePolicy(podIPs, fip.Status, fip.Name); err != nil {
 		return err
 	}
-	if err := f.deleteNATRule(podIPs, fip.Spec, fip.Name); err != nil {
+	if err := f.deleteNATRule(podIPs, fip.Status, fip.Name); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (f *floatingIPController) createReroutePolicy(podIPs []net.IP, spec floatingipv1.FloatingIPSpec, fIPName string) error {
-    isFloatingIPv6 := utilnet.IsIPv6String(spec.FloatingIP)
-    gatewayRouterIP, err := f.getGatewayRouterJoinIP(spec.NodeName, isFloatingIPv6)
+func (f *floatingIPController) createReroutePolicy(podIPs []net.IP, status floatingipv1.FloatingIPStatus, fIPName string) error {
+    isFloatingIPv6 := utilnet.IsIPv6String(status.FloatingIP)
+    gatewayRouterIP, err := f.getGatewayRouterJoinIP(status.NodeName, isFloatingIPv6)
     if err!= nil {
-    	return fmt.Errorf("unable to retrieve gateway IP for node: %s, err: %v", spec.NodeName, err)
+    	return fmt.Errorf("unable to retrieve gateway IP for node: %s, err: %v", status.NodeName, err)
 	}
 	for _, podIP := range podIPs {
 		var err error
@@ -179,24 +179,24 @@ func (f *floatingIPController) createReroutePolicy(podIPs []net.IP, spec floatin
 				"@lr-policy",
 				)
 			if err != nil {
-				return fmt.Errorf("unable to create logical router policy: %s, stderr: %s, err: %v", spec.FloatingIP, stderr, err)
+				return fmt.Errorf("unable to create logical router policy: %s, stderr: %s, err: %v", status.FloatingIP, stderr, err)
 			}
 		}
 	}
 	return nil
 }
 
-func (f *floatingIPController) deleteReroutePolicy(podIPs []net.IP, spec floatingipv1.FloatingIPSpec, fIPName string) error {
-	isFloatingIPv6 := utilnet.IsIPv6String(spec.FloatingIP)
-	gatewayRouterIP, err := f.getGatewayRouterJoinIP(spec.NodeName, isFloatingIPv6)
+func (f *floatingIPController) deleteReroutePolicy(podIPs []net.IP, status floatingipv1.FloatingIPStatus, fIPName string) error {
+	isFloatingIPv6 := utilnet.IsIPv6String(status.FloatingIP)
+	gatewayRouterIP, err := f.getGatewayRouterJoinIP(status.NodeName, isFloatingIPv6)
 	if err != nil {
-		return fmt.Errorf("unable to retrieve gateway IP for node: %s, err: %v", spec.NodeName, err)
+		return fmt.Errorf("unable to retrieve gateway IP for node: %s, err: %v", status.NodeName, err)
 	}
 	for _, podIP := range podIPs {
 		var filterOption string
-		if utilnet.IsIPv6(podIP) && utilnet.IsIPv6String(spec.FloatingIP) {
+		if utilnet.IsIPv6(podIP) && utilnet.IsIPv6String(status.FloatingIP) {
 			filterOption = fmt.Sprintf("ip6.src == %s", podIP.String())
-		} else if !utilnet.IsIPv6(podIP) && !utilnet.IsIPv6String(spec.FloatingIP) {
+		} else if !utilnet.IsIPv6(podIP) && !utilnet.IsIPv6String(status.FloatingIP) {
 			filterOption = fmt.Sprintf("ip4.src == %s", podIP.String())
 		}
 		policyIDs, err := f.findReroutePolicyIDs(filterOption, fIPName, gatewayRouterIP)
@@ -212,17 +212,17 @@ func (f *floatingIPController) deleteReroutePolicy(podIPs []net.IP, spec floatin
 				policyID,
 				)
 			if err != nil {
-				return fmt.Errorf("unable to remove logicaal router policy: %s, stderr: %s, err: %v", spec.FloatingIP, stderr, err)
+				return fmt.Errorf("unable to remove logicaal router policy: %s, stderr: %s, err: %v", status.FloatingIP, stderr, err)
 			}
 		}
 	}
 	return nil
 }
 
-func (f *floatingIPController) createNATRule(podIPs []net.IP, spec floatingipv1.FloatingIPSpec, fIPName string) error {
+func (f *floatingIPController) createNATRule(podIPs []net.IP, status floatingipv1.FloatingIPStatus, fIPName string) error {
 	for _, podIP := range podIPs {
-		if (utilnet.IsIPv6String(spec.FloatingIP) && utilnet.IsIPv6(podIP)) || (!utilnet.IsIPv6String(spec.FloatingIP) && !utilnet.IsIPv6(podIP)) {
-			natIDs, err := findOneToOneNatIDs(fIPName, podIP.String(), spec.FloatingIP)
+		if (utilnet.IsIPv6String(status.FloatingIP) && utilnet.IsIPv6(podIP)) || (!utilnet.IsIPv6String(status.FloatingIP) && !utilnet.IsIPv6(podIP)) {
+			natIDs, err := findOneToOneNatIDs(fIPName, podIP.String(), status.FloatingIP)
 			if err != nil {
 				return err
 			}
@@ -232,14 +232,14 @@ func (f *floatingIPController) createNATRule(podIPs []net.IP, spec floatingipv1.
 					"create",
 					"nat",
 					"type=dnat_and_snat",
-					fmt.Sprintf("logical_port=k8s-%s", spec.NodeName),
-					fmt.Sprintf("external_ip=\"%s\"", spec.FloatingIP),
+					fmt.Sprintf("logical_port=k8s-%s", status.NodeName),
+					fmt.Sprintf("external_ip=\"%s\"", status.FloatingIP),
 					fmt.Sprintf("logical_ip=\"%s\"", podIP),
 					fmt.Sprintf("external_ids:name=%s", fIPName),
 					"--",
 					"add",
 					"logical_router",
-					util.GetGatewayRouterFromNode(spec.NodeName),
+					util.GetGatewayRouterFromNode(status.NodeName),
 					"nat",
 					"@nat",
 				)
@@ -252,10 +252,10 @@ func (f *floatingIPController) createNATRule(podIPs []net.IP, spec floatingipv1.
 	return nil
 }
 
-func (f *floatingIPController) deleteNATRule(podIPs []net.IP, spec floatingipv1.FloatingIPSpec, fIPName string) error {
+func (f *floatingIPController) deleteNATRule(podIPs []net.IP, status floatingipv1.FloatingIPStatus, fIPName string) error {
 	for _, podIP := range podIPs {
-		if (utilnet.IsIPv6String(spec.FloatingIP) && utilnet.IsIPv6(podIP)) || (!utilnet.IsIPv6String(spec.FloatingIP) && !utilnet.IsIPv6(podIP)) {
-			natIDs, err := findOneToOneNatIDs(fIPName, podIP.String(), spec.FloatingIP)
+		if (utilnet.IsIPv6String(status.FloatingIP) && utilnet.IsIPv6(podIP)) || (!utilnet.IsIPv6String(status.FloatingIP) && !utilnet.IsIPv6(podIP)) {
+			natIDs, err := findOneToOneNatIDs(fIPName, podIP.String(), status.FloatingIP)
 			if err != nil {
 				return err
 			}
@@ -263,7 +263,7 @@ func (f *floatingIPController) deleteNATRule(podIPs []net.IP, spec floatingipv1.
 				_, stderr, err := util.RunOVNNbctl(
 					"remove",
 					"logical_router",
-					util.GetGatewayRouterFromNode(spec.NodeName),
+					util.GetGatewayRouterFromNode(status.NodeName),
 					"nat",
 					natID,
 					)

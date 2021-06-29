@@ -9,9 +9,9 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:printcolumn:name="FloatingIPClaim",type=string,JSONPath=".spec.floatingIPClaim"
 // +kubebuilder:printcolumn:name="Pod",type=string,JSONPath=".spec.pod"
-// +kubebuilder:printcolumn:name="Node",type=string,JSONPath=".spec.nodeName"
-// +kubebuilder:printcolumn:name="FloatingIP",type=string,JSONPath=".spec.floatingIP"
-// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=".status.Phase"
+// +kubebuilder:printcolumn:name="Node",type=string,JSONPath=".status.nodeName"
+// +kubebuilder:printcolumn:name="FloatingIP",type=string,JSONPath=".status.floatingIP"
+// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=".status.phase"
 // +kubebuilder:subresource:status
 // +kubebuilder:object:root=true
 type FloatingIP struct {
@@ -37,7 +37,9 @@ type FloatingIPSpec struct {
 	// PodNamespace is namespace of the pod assigned to floating ip
 	// +optional
 	PodNamespace string `json:"podNamespace"`
+}
 
+type FloatingIPStatus struct {
 	// Node assigned to floating ip
 	// +optional
 	NodeName string `json:"nodeName"`
@@ -45,15 +47,10 @@ type FloatingIPSpec struct {
 	// Assigned floating ip address
 	// +optional
 	FloatingIP string `json:"floatingIP"`
-}
 
-type FloatingIPStatus struct {
 	// The phase of a floating ip.
 	// +optional
 	Phase FloatingIPPhase `json:"phase,omitempty"`
-
-	// +optional
-	Verified bool `json:"verified,omitempty"`
 }
 
 type FloatingIPPhase string

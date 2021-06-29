@@ -32,6 +32,7 @@ type Interface interface {
 	UpdateEgressIP(eIP *egressipv1.EgressIP) error
 	UpdateFloatingIP(fIP *floatingipv1.FloatingIP) error
 	UpdateFloatingIPClaim(fic *floatingipclaimv1.FloatingIPClaim) error
+	UpdateFloatingIPStatus(fIP *floatingipv1.FloatingIP) error
 	UpdateNodeStatus(node *kapi.Node) error
 	GetAnnotationsOnPod(namespace, name string) (map[string]string, error)
 	GetNodes() (*kapi.NodeList, error)
@@ -196,6 +197,12 @@ func (k *Kube) UpdateFloatingIP(fIP *floatingipv1.FloatingIP) error {
 func (k *Kube) UpdateFloatingIPClaim(fic *floatingipclaimv1.FloatingIPClaim) error {
 	klog.Infof("Updating status on FloatingIPClaim %s", fic.Name)
 	_, err := k.FIPCClient.K8sV1().FloatingIPClaims().Update(context.TODO(), fic, metav1.UpdateOptions{})
+	return err
+}
+
+func (k *Kube) UpdateFloatingIPStatus(fIP *floatingipv1.FloatingIP) error {
+	klog.Infof("Updating status on FloatingIP %s", fIP.Name)
+	_, err := k.FIPClient.K8sV1().FloatingIPs().UpdateStatus(context.TODO(), fIP, metav1.UpdateOptions{})
 	return err
 }
 

@@ -93,7 +93,7 @@ func (oc *Controller) deleteFloatingIPClaim(fic *floatingipclaimapi.FloatingIPCl
 	return nil
 }
 
-func (oc *Controller) addFloatingIPToClaim(ficName string, fi *floatingipapi.FloatingIP) error {
+func (oc *Controller) addFloatingIPToClaim(ficName string, fi *floatingipapi.FloatingIP) {
 	klog.V(5).Infof("floating ip claim: floating ip %s about to be added", fi.Name)
 	runtime := oc.fIPCC.GetRuntime(ficName)
 
@@ -101,10 +101,11 @@ func (oc *Controller) addFloatingIPToClaim(ficName string, fi *floatingipapi.Flo
 	defer oc.fIPCC.fipOnPodLock.Unlock()
 	if runtime == nil {
 		klog.Errorf("unknow floating ip add action after claim deleted")
-		return nil
+		return
 	}
-	if err := oc.verifyFipInClaim(runtime, fi); err != nil {
-		return err
+	fiObj, ok := oc.verifyFipInClaim(runtime, fi)
+	if !ok {
+		return
 	}
 
 	// update status field
@@ -113,55 +114,47 @@ func (oc *Controller) addFloatingIPToClaim(ficName string, fi *floatingipapi.Flo
 	} else {
 		obj := ficObj.DeepCopy()
 		skip := false
-		for _, status := range obj.Status.Items {
-			if status.Node == fi.Spec.NodeName {
-				for _, ip := range status.AssignedIPs {
-					if ip == fi.Spec.FloatingIP {
-						skip = true
-					}
-				}
-				if !skip {
-					status.AssignedIPs = append(status.AssignedIPs, fi.Spec.FloatingIP)
-					skip = true
-				}
+		for _, ip := range obj.Status.AssignedIPs {
+			if ip == fiObj.Status.FloatingIP {
+				skip = true
 			}
 		}
 		if !skip {
-			obj.Status.Items = append(obj.Status.Items, floatingipclaimapi.FloatingIPClaimStatusItem{
-				Node:        fi.Spec.NodeName,
-				AssignedIPs: []string{fi.Spec.FloatingIP},
-			})
+			obj.Status.AssignedIPs = append(obj.Status.AssignedIPs, fiObj.Status.FloatingIP)
 		}
-		if err := oc.kube.UpdateFloatingIPClaim(obj); err != nil {
-			klog.Errorf("floating ip claim: unable to update floating ip claim status: %s err: %s", fi.Spec.FloatingIPClaim, err)
+		if obj.OwnerReferences == nil {
+			obj.OwnerReferences = []metav1.OwnerReference{
+				*metav1.NewControllerRef(ficObj, floatingipclaimapi.SchemeGroupVersion.WithKind("FloatingIPClaim")),
+			}
+			skip = false
+		}
+		if !skip {
+			if err := oc.kube.UpdateFloatingIPClaim(obj); err != nil {
+				klog.Errorf("floating ip claim: unable to update floating ip claim status: %s err: %s", fi.Spec.FloatingIPClaim, err)
+			}
 		}
 	}
-	return nil
 }
 
-func (oc *Controller) deleteFloatingIPInClaim(ficName string, fi *floatingipapi.FloatingIP) error {
+func (oc *Controller) deleteFloatingIPInClaim(ficName string, fi *floatingipapi.FloatingIP) {
 	klog.V(5).Infof("floating ip claim: floating ip %s about to be removed", fi.Name)
 	// release resources
-	if fi.Spec.NodeName != "" {
-		oc.fIPNC.Release(fi.Spec.NodeName)
+	if fi.Status.NodeName != "" {
+		oc.fIPNC.Release(fi.Status.NodeName)
 	}
 	runtime := oc.fIPCC.GetRuntime(ficName)
-	if runtime != nil && fi.Spec.FloatingIP != "" {
-		runtime.ipAllocator.Release(net.ParseIP(fi.Spec.FloatingIP))
+	if runtime != nil && fi.Status.FloatingIP != "" {
+		runtime.ipAllocator.Release(net.ParseIP(fi.Status.FloatingIP))
 
 		if ficObj, err := oc.kube.GetFloatingIPClaim(fi.Spec.FloatingIPClaim); err != nil {
 			klog.Errorf("floating ip claim: unable to get floating ip claim: %s err: %s", fi.Spec.FloatingIPClaim, err)
 		} else {
 			obj := ficObj.DeepCopy()
 			skip := true
-			for _, status := range obj.Status.Items {
-				if status.Node == fi.Spec.NodeName {
-					for i, ip := range status.AssignedIPs {
-						if ip == fi.Spec.FloatingIP {
-							status.AssignedIPs = append(status.AssignedIPs[:i], status.AssignedIPs[i + 1:]...)
-							skip = false
-						}
-					}
+			for i, ip := range obj.Status.AssignedIPs {
+				if ip == fi.Status.FloatingIP {
+					obj.Status.AssignedIPs = append(obj.Status.AssignedIPs[:i], obj.Status.AssignedIPs[i + 1:]...)
+					skip = false
 				}
 			}
 			if !skip {
@@ -182,16 +175,14 @@ func (oc *Controller) deleteFloatingIPInClaim(ficName string, fi *floatingipapi.
 		fipName: fi.Name,
 		ficName: ficName,
 	}
+	delete(oc.fIPCC.fipOnPodPendingCache, fipId)
 	if _, exist := oc.fIPCC.fipOnPodCache[id]; exist {
 		if err := oc.kube.UnsetAnnotationsOnPod(id.namespace, id.name, []string{fipOnPodAnnotationName}); err != nil {
 			klog.V(5).Infof("floating ip claim: unable to unmark pod: %s/%s err: %s", id.namespace, id.name, err)
 		}
 		delete(oc.fIPCC.fipOnPodCache, id)
-	} else {
-		delete(oc.fIPCC.fipOnPodPendingCache, fipId)
+		oc.retryFipInClaim(&fipId, &id)
 	}
-
-	return oc.retryFipInClaim(&fipId, &id)
 }
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
@@ -280,11 +271,12 @@ func (oc *Controller) deleteFipsInClaim(fic *floatingipclaimapi.FloatingIPClaim)
 }
 
 // function must be locked(oc.fIPCC.fipOnPodLock) before calling
-func (oc *Controller) verifyFipInClaim(runtime *floatingIPClaimRuntime, fi *floatingipapi.FloatingIP) error {
+func (oc *Controller) verifyFipInClaim(runtime *floatingIPClaimRuntime, fi *floatingipapi.FloatingIP) (*floatingipapi.FloatingIP, bool) {
 	ok := false
 	pod, err := oc.kube.GetPod(fi.Spec.PodNamespace, fi.Spec.Pod)
 	if err != nil {
-		return err
+		klog.Errorf("floating ip claim: there is no corresponding pod: %s/%s err: %s", fi.Spec.PodNamespace, fi.Spec.Pod, err)
+		return nil, false
 	}
 	id := PodID{pod.Name, pod.Namespace}
 	fipId := FipID{fi.Name, fi.Spec.FloatingIPClaim}
@@ -305,18 +297,18 @@ func (oc *Controller) verifyFipInClaim(runtime *floatingIPClaimRuntime, fi *floa
 	}()
 	// pod already has another floating ip crd
 	if _, exist := oc.fIPCC.fipOnPodCache[id]; exist {
-		return nil
+		return nil, ok
 	}
 
 	// pod network not ready
 	if len(pod.Status.PodIPs) == 0 {
-		return nil
+		return nil, ok
 	}
 
 	// allocate network resources
 	ip, err := runtime.ipAllocator.AllocateNext()
 	if err != nil {
-		return err
+		return nil, ok
 	}
 	defer func() {
 		if !ok {
@@ -326,7 +318,7 @@ func (oc *Controller) verifyFipInClaim(runtime *floatingIPClaimRuntime, fi *floa
 
 	node := oc.fIPNC.Allocate()
 	if node == "" {
-		return nil
+		return nil, ok
 	}
 	defer func() {
 		if !ok {
@@ -336,17 +328,18 @@ func (oc *Controller) verifyFipInClaim(runtime *floatingIPClaimRuntime, fi *floa
 
 	// update floating ip crd
 	fiObj := fi.DeepCopy()
-	fiObj.Spec.FloatingIP = ip.To4().String()
-	fiObj.Spec.NodeName = node
-	fiObj.Status.Verified = true
-	if err := oc.kube.UpdateFloatingIP(fiObj); err != nil {
-		return err
+	fiObj.Status.FloatingIP = ip.To4().String()
+	fiObj.Status.NodeName = node
+	fiObj.Status.Phase = floatingipapi.FloatingIPCreating
+	if err := oc.kube.UpdateFloatingIPStatus(fiObj); err != nil {
+		klog.Errorf("floating ip claim: unable to update floating ip crd: %s err: %s", fipId.fipName, err)
+		return nil, ok
 	}
 	ok = true
-	return nil
+	return fiObj, ok
 }
 
-func (oc *Controller) retryFipInClaim(fipId *FipID, id *PodID) error {
+func (oc *Controller) retryFipInClaim(fipId *FipID, id *PodID) {
 	for k, v := range oc.fIPCC.fipOnPodPendingCache {
 		if runtime := oc.fIPCC.GetRuntime(k.ficName); runtime == nil {
 			delete(oc.fIPCC.fipOnPodPendingCache, k)
@@ -354,15 +347,14 @@ func (oc *Controller) retryFipInClaim(fipId *FipID, id *PodID) error {
 			if fiObj, err := oc.kube.GetFloatingIP(k.fipName); err != nil {
 				klog.Errorf("floating ip claim: unable to list floating ip: %s err: %v", k.fipName, err)
 			} else {
-				if err := oc.verifyFipInClaim(runtime, fiObj); err != nil {
-					klog.Errorf("floating ip claim: unable to verify floating ip: %s err: %v", k.fipName, err)
-				} else if (fipId != nil && reflect.DeepEqual(k, fipId)) || (id != nil && reflect.DeepEqual(v, id)) {
-					break
+				if _, ok := oc.verifyFipInClaim(runtime, fiObj); ok {
+					if (fipId != nil && reflect.DeepEqual(k, fipId)) || (id != nil && reflect.DeepEqual(v, id)) {
+						break
+					}
 				}
 			}
 		}
 	}
-	return nil
 }
 
 type PodID struct {

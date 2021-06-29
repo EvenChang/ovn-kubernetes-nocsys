@@ -10,22 +10,22 @@ import (
 	"k8s.io/klog/v2"
 )
 
-func (oc *Controller) addFloatingIPNode(node *v1.Node) error {
+func (oc *Controller) addFloatingIPNode(node *v1.Node) {
 	klog.V(5).Infof("floating ip node: %s about to be added", node)
 	oc.fIPCC.fipOnPodLock.Lock()
 	defer oc.fIPCC.fipOnPodLock.Unlock()
-	return oc.retryFipInClaim(nil, nil)
+	oc.retryFipInClaim(nil, nil)
 }
 
-func (oc *Controller) deleteFloatingIPNode(node *v1.Node) error {
+func (oc *Controller) deleteFloatingIPNode(node *v1.Node) {
 	klog.V(5).Infof("floating ip node: %s about to be removed", node)
 	fiObjs, err := oc.kube.GetFloatingIPs()
 	if err != nil {
 		klog.Errorf("floating ip node: unable to list floating ip on node: %s err: %v", node.Name, err)
-		return err
+		return
 	}
 	for _, fiObj := range fiObjs.Items {
-		if fiObj.Spec.NodeName == node.Name {
+		if fiObj.Status.NodeName == node.Name {
 			if err := oc.kube.DeleteFloatingIP(fiObj.Name); err != nil {
 				klog.Errorf("floating ip claim: unable to remove floating ip %s on node: %s err: %v", fiObj.Name, node.Name, err)
 			}
@@ -47,7 +47,6 @@ func (oc *Controller) deleteFloatingIPNode(node *v1.Node) error {
 			}
 		}
 	}
-	return nil
 }
 
 type floatingIPNodeController struct {

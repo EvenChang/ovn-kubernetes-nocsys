@@ -39,13 +39,6 @@ type FloatingIPClaimSpec struct {
 }
 
 type FloatingIPClaimStatus struct {
-	// The list of assigned floating IPs and their corresponding node assignment.
-	Items []FloatingIPClaimStatusItem `json:"items"`
-}
-
-// The per node status, for those floating IPs who have been assigned.
-type FloatingIPClaimStatusItem struct {
-	Node string `json:"node"`
 	// Assigned floating IP
 	AssignedIPs []string `json:"assignedIPs"`
 }
