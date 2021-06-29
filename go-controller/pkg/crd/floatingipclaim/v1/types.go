@@ -9,7 +9,6 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 // +kubebuilder:resource:shortName=fic,scope=Cluster
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:printcolumn:name="FloatingIPs",type=string,JSONPath=".spec.floatingIPs[*]"
-// +kubebuilder:printcolumn:name="Nodes",type=string,JSONPath=".status.nodes[*]"
 // +kubebuilder:printcolumn:name="Assigned FloatingIPs",type=string,JSONPath=".status.assignedIPs[*]"
 type FloatingIPClaim struct {
 	metav1.TypeMeta `json:",inline"`

@@ -40,7 +40,6 @@ type FloatingIPsGetter interface {
 type FloatingIPInterface interface {
 	Create(ctx context.Context, floatingIP *v1.FloatingIP, opts metav1.CreateOptions) (*v1.FloatingIP, error)
 	Update(ctx context.Context, floatingIP *v1.FloatingIP, opts metav1.UpdateOptions) (*v1.FloatingIP, error)
-	UpdateStatus(ctx context.Context, floatingIP *v1.FloatingIP, opts metav1.UpdateOptions) (*v1.FloatingIP, error)
 	Delete(ctx context.Context, name string, opts metav1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts metav1.DeleteOptions, listOpts metav1.ListOptions) error
 	Get(ctx context.Context, name string, opts metav1.GetOptions) (*v1.FloatingIP, error)
@@ -122,21 +121,6 @@ func (c *floatingIPs) Update(ctx context.Context, floatingIP *v1.FloatingIP, opt
 	err = c.client.Put().
 		Resource("floatingips").
 		Name(floatingIP.Name).
-		VersionedParams(&opts, scheme.ParameterCodec).
-		Body(floatingIP).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// UpdateStatus was generated because the type contains a Status member.
-// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-func (c *floatingIPs) UpdateStatus(ctx context.Context, floatingIP *v1.FloatingIP, opts metav1.UpdateOptions) (result *v1.FloatingIP, err error) {
-	result = &v1.FloatingIP{}
-	err = c.client.Put().
-		Resource("floatingips").
-		Name(floatingIP.Name).
-		SubResource("status").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Body(floatingIP).
 		Do(ctx).

@@ -789,7 +789,7 @@ func (oc *Controller) WatchFloatingIP() {
 			fip.Status.NodeName = ""
 			fip.Status.FloatingIP = ""
 			fip.Status.Phase = floatingipv1.FloatingIPFailed
-			if err := oc.kube.UpdateFloatingIPStatus(fip); err != nil {
+			if err := oc.kube.UpdateFloatingIP(fip); err != nil {
 				klog.Errorf("error: unable to clean up floating ip: %s err: %v", fip.Name, err)
 			}
 		}

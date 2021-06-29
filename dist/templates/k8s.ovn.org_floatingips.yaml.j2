@@ -25,13 +25,13 @@ spec:
     - jsonPath: .spec.pod
       name: Pod
       type: string
-    - jsonPath: .spec.nodeName
+    - jsonPath: .status.nodeName
       name: Node
       type: string
-    - jsonPath: .spec.floatingIP
+    - jsonPath: .status.floatingIP
       name: FloatingIP
       type: string
-    - jsonPath: .status.Phase
+    - jsonPath: .status.phase
       name: Status
       type: string
     name: v1
@@ -53,14 +53,8 @@ spec:
           spec:
             description: Specification of the desired behavior of FloatingIPClaim.
             properties:
-              floatingIP:
-                description: Assigned floating ip address
-                type: string
               floatingIPClaim:
                 description: floating ip claim name
-                type: string
-              nodeName:
-                description: Node assigned to floating ip
                 type: string
               pod:
                 description: Pod assigned to floating ip
@@ -76,19 +70,22 @@ spec:
           status:
             description: Observed status of FloatingIP. Read-only.
             properties:
+              floatingIP:
+                description: Assigned floating ip address
+                type: string
+              nodeName:
+                description: Node assigned to floating ip
+                type: string
               phase:
                 description: The phase of a floating ip.
                 type: string
-              verified:
-                type: boolean
             type: object
         required:
         - spec
         type: object
     served: true
     storage: true
-    subresources:
-      status: {}
+    subresources: {}
 status:
   acceptedNames:
     kind: ""
