@@ -140,7 +140,7 @@ func (g *gateway) AddFloatingIP(fip *floatingipv1.FloatingIP) {
 }
 
 func (g *gateway) UpdateFloatingIP(old, new *floatingipv1.FloatingIP) {
-	if strings.Compare(new.Status.NodeName, g.nodeName) != 0 {
+	if strings.Compare(new.Status.NodeName, g.nodeName) != 0 && strings.Compare(old.Status.NodeName, g.nodeName) != 0 {
 		klog.V(5).Infof("Skipping Floating IP updating for: %v which is not assigned to this node", new)
 		return
 	}
@@ -154,16 +154,10 @@ func (g *gateway) UpdateFloatingIP(old, new *floatingipv1.FloatingIP) {
 		return
 	}
 
-	if strings.Compare(old.Status.NodeName, new.Status.NodeName) != 0 {
-		klog.Errorf("Invalid Floating IP update for: %s. When node change, Floating IP should be delete " +
-			"and recreate", old.Name)
-		return
-	}
-
-	if util.IsIP(old.Status.FloatingIP) {
+	if strings.Compare(old.Status.NodeName, g.nodeName) == 0 && util.IsIP(old.Status.FloatingIP) {
 		g.updateFloatingIPFlowCache(old, false)
 	}
-    if util.IsIP(new.Status.FloatingIP) {
+    if strings.Compare(new.Status.NodeName, g.nodeName) == 0 && util.IsIP(new.Status.FloatingIP) {
     	g.updateFloatingIPFlowCache(new, true)
 	}
     g.openflowManager.requestFlowSync()
