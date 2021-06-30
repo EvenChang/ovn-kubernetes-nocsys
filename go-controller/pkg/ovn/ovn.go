@@ -848,8 +848,12 @@ func (oc *Controller) WatchFloatingIPNodes() {
 			node := obj.(*kapi.Node)
 			nodeLabels := node.GetLabels()
 			if _, hasLabel := nodeLabels[fiLabel]; hasLabel {
-				oc.fIPNC.AddNode(node)
-				oc.addFloatingIPNode(node)
+				isReady := oc.isFloatingIPNodeReady(node)
+				isReachable := oc.isFloatingIPNodeReachable(node)
+				if isReady && isReachable {
+					oc.fIPNC.AddNode(node)
+					oc.addFloatingIPNode(node)
+				}
 			}
 		},
 		UpdateFunc: func(old, new interface{}) {
@@ -868,11 +872,30 @@ func (oc *Controller) WatchFloatingIPNodes() {
 				oc.deleteFloatingIPNode(oldNode)
 				return
 			}
+			isOldReady := oc.isFloatingIPNodeReady(oldNode)
+			isNewReady := oc.isFloatingIPNodeReady(newNode)
+			isNewReachable := oc.isFloatingIPNodeReachable(newNode)
 			if !oldHasLabel && newHasLabel {
 				klog.Infof("Node: %s has been labelled, adding it for floating ip assignment", newNode.Name)
+				if isNewReady && isNewReachable {
+					oc.fIPNC.AddNode(newNode)
+					oc.addFloatingIPNode(newNode)
+				} else {
+					klog.Warningf("Node: %s has been labelled, but node is not ready and reachable, cannot use it for floating ip assignment", newNode.Name)
+				}
+				return
+			}
+			if isOldReady == isNewReady {
+				return
+			}
+			if !isNewReady {
+				klog.Warningf("Node: %s is not ready, deleting it from floating ip assignment", newNode.Name)
+				oc.fIPNC.DeleteNode(newNode)
+				oc.deleteFloatingIPNode(newNode)
+			} else if isNewReady && isNewReachable {
+				klog.Infof("Node: %s is ready and reachable, adding it for floating ip assignment", newNode.Name)
 				oc.fIPNC.AddNode(newNode)
 				oc.addFloatingIPNode(newNode)
-				return
 			}
 		},
 		DeleteFunc: func(obj interface{}) {

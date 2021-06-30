@@ -3,7 +3,9 @@ package ovn
 import (
 	"github.com/google/uuid"
 	floatingipapi "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"net"
 	"sync"
 
 	v1 "k8s.io/api/core/v1"
@@ -47,6 +49,34 @@ func (oc *Controller) deleteFloatingIPNode(node *v1.Node) {
 			}
 		}
 	}
+}
+
+func (oc *Controller) isFloatingIPNodeReady(node *v1.Node) bool {
+	for _, condition := range node.Status.Conditions {
+		if condition.Type == v1.NodeReady {
+			return condition.Status == v1.ConditionTrue
+		}
+	}
+	return false
+}
+
+func (oc *Controller) isFloatingIPNodeReachable(node *v1.Node) bool {
+	reachable := false
+	v4IfAddr, _, err := util.ParseNodePrimaryIfAddr(node)
+	if err != nil {
+		klog.Errorf("unable to use node for floating ip assignment, err: %v", err)
+		return reachable
+	}
+
+	if v4IfAddr != "" {
+		v4IP, _, err := net.ParseCIDR(v4IfAddr)
+		if err != nil {
+			klog.Errorf("Unable to resolve network address, err: %v", err)
+			return reachable
+		}
+		reachable = dialer.dial(v4IP)
+	}
+	return reachable
 }
 
 type floatingIPNodeController struct {
