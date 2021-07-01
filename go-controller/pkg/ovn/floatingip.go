@@ -42,22 +42,19 @@ func (oc *Controller) addFloatingIP(fIP *floatingipv1.FloatingIP) error {
 
 func (oc *Controller) deleteFloatingIP(fIP *floatingipv1.FloatingIP) error {
 	spec := fIP.Spec
-	pod, err := oc.kube.GetPod(spec.PodNamespace, spec.Pod)
-	if err != nil {
-		return err
-	}
-	if pod.Spec.HostNetwork {
+	if fIP.Status.HostNetwork {
 		return nil
 	}
 
-	podIPs := getPodIPs(pod)
+	podIPs := getIPs(fIP.Status)
 	if podIPs == nil {
 		klog.Errorf("Deleting FloatingIP failed for: %v as the pod has not been assigned ip address", fIP)
 		return nil
 	}
 
-	if err = oc.fIPC.deletePodFloatingIP(podIPs, fIP); err != nil {
-		return fmt.Errorf("unable to delete pod(%s/%s)'s FloatingIP: %s, err: %v", pod.Namespace, pod.Name, fIP.Name, err)
+	if err := oc.fIPC.deletePodFloatingIP(podIPs, fIP); err != nil {
+		return fmt.Errorf("unable to delete pod(%s/%s)'s FloatingIP: %s, err: %v",
+			spec.PodNamespace, spec.Pod, fIP.Name, err)
 	}
 
 	return nil
@@ -119,7 +116,7 @@ func findOneToOneNatIDs(floatingIPName, podIP, floatingIP string) ([]string, err
 }
 
 type floatingIPController struct {
-	// Cache of gateway join router IPs, usefull since these should not change often
+	// Cache of gateway join router IPs, useful since these should not change often
 	gatewayIPCache sync.Map
 }
 
@@ -336,9 +333,21 @@ func getPodIPs(pod *kapi.Pod) []net.IP {
 	if len(pod.Status.PodIPs) == 0 {
 		return nil
 	}
-	podIPs := []net.IP{}
+	var podIPs []net.IP
 	for _, podIP := range pod.Status.PodIPs {
 		podIPs = append(podIPs, net.ParseIP(podIP.IP))
+	}
+	return podIPs
+}
+
+func getIPs(status floatingipv1.FloatingIPStatus) []net.IP {
+	if len(status.PodIPs) == 0 {
+		return nil
+	}
+
+	var podIPs []net.IP
+	for _, ip := range status.PodIPs {
+		podIPs = append(podIPs, net.ParseIP(ip))
 	}
 	return podIPs
 }

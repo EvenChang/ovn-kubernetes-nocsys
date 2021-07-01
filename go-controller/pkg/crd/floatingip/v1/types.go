@@ -1,6 +1,8 @@
 package v1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 // +genclient
 // +genclient:nonNamespaced
@@ -46,6 +48,14 @@ type FloatingIPStatus struct {
 	// Assigned floating ip address
 	// +optional
 	FloatingIP string `json:"floatingIP"`
+
+	// Use the host's network
+	// +optional
+	HostNetwork bool `json:"HostNetWork"`
+
+	// The IP addresses of pod
+	// +optional
+	PodIPs []string `json:"podIPs"`
 
 	// The phase of a floating ip.
 	// +optional
