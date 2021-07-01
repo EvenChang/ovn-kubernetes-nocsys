@@ -70,6 +70,9 @@ spec:
           status:
             description: Observed status of FloatingIP. Read-only.
             properties:
+              HostNetWork:
+                description: Use the host's network
+                type: boolean
               floatingIP:
                 description: Assigned floating ip address
                 type: string
@@ -79,6 +82,11 @@ spec:
               phase:
                 description: The phase of a floating ip.
                 type: string
+              podIPs:
+                description: The IP addresses of pod
+                items:
+                  type: string
+                type: array
             type: object
         required:
         - spec
