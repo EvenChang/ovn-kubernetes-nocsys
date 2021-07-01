@@ -331,6 +331,10 @@ func (oc *Controller) verifyFipInClaim(runtime *floatingIPClaimRuntime, fi *floa
 	fiObj.Status.FloatingIP = ip.To4().String()
 	fiObj.Status.NodeName = node
 	fiObj.Status.Phase = floatingipapi.FloatingIPCreating
+	for _, PodIP := range pod.Status.PodIPs {
+		fiObj.Status.PodIPs = append(fiObj.Status.PodIPs, PodIP.IP)
+	}
+	fiObj.Status.HostNetwork = pod.Spec.HostNetwork
 	if err := oc.kube.UpdateFloatingIP(fiObj); err != nil {
 		klog.Errorf("floating ip claim: unable to update floating ip crd: %s err: %s", fipId.fipName, err)
 		return nil, ok
