@@ -249,6 +249,11 @@ func (f *floatingIPController) createNATRule(podIPs []net.IP, status floatingipv
 			}
 		}
 	}
+
+	if !util.HasGARP(types.EXTSwitchToGWRouterPrefix + types.GWRouterPrefix + status.NodeName) {
+		util.AddGARP(types.EXTSwitchToGWRouterPrefix + types.GWRouterPrefix + status.NodeName)
+	}
+
 	return nil
 }
 

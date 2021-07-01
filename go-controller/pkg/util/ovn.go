@@ -145,3 +145,41 @@ func FindOVNLoadBalancer(externalID, externalValue string) (string, string, erro
 	}
 	return out, "", nil
 }
+
+// AddGARP configure GARP on given external logical switch port
+func AddGARP(portName string) {
+	if stdout, stderr, err := RunOVNNbctl(
+		"set",
+		"logical_switch_port",
+		portName,
+		"options:nat-addresses=router",
+	); err != nil {
+		klog.Errorf("Unable to configure GARP on external logical switch port: %s " +
+			"stdout: %s, stderr: %s, err: %v", portName, stdout, stderr, err)
+	}
+}
+
+// DeleteGARP remove GARP configuration from given external logical switch port
+func DeleteGARP(portName string) {
+    if stdout, stderr, err := RunOVNNbctl(
+    	"remove",
+    	"logical_switch_port",
+    	portName,
+    	"options",
+    	"nat-addresses=router",
+    ); err != nil {
+    	klog.Errorf("Unable to remove GARP configuration on external logical switch port: %s " +
+    		"stdout: %s, stderr: %s, err: %v", portName, stdout, stderr, err)
+	}
+}
+
+// HasGARP check whether GARP configuration exist on given external logical swith port or not
+func HasGARP(portName string) bool {
+	stdout, stderr, err := RunOVNNbctl("--if-exist", "get", "logical_switch_port", portName, "options:nat-addresses")
+	if err != nil {
+		klog.Errorf("Unable to get the GARP configuration on external logical switch port: %s " +
+			"stdout: %s, stderr: %s, err: %v", portName, stdout, stderr, err)
+	}
+
+	return strings.TrimSpace(stdout) == "router"
+}

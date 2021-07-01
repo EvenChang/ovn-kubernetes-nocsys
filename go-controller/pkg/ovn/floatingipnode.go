@@ -3,6 +3,7 @@ package ovn
 import (
 	"github.com/google/uuid"
 	floatingipapi "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"net"
@@ -85,6 +86,8 @@ type floatingIPNodeController struct {
 }
 
 func (finc *floatingIPNodeController) AddNode(node *v1.Node) {
+	util.AddGARP(types.EXTSwitchToGWRouterPrefix + types.GWRouterPrefix + node.Name)
+
 	finc.lock.Lock()
 	defer finc.lock.Unlock()
 
@@ -94,6 +97,12 @@ func (finc *floatingIPNodeController) AddNode(node *v1.Node) {
 }
 
 func (finc *floatingIPNodeController) DeleteNode(node *v1.Node) {
+	nodeEgressLabel := util.GetNodeEgressLabel()
+	nodeLabels := node.GetLabels()
+	if _, hasEgressLabel := nodeLabels[nodeEgressLabel]; !hasEgressLabel {
+		util.DeleteGARP(types.EXTSwitchToGWRouterPrefix + types.GWRouterPrefix + node.Name);
+	}
+
 	finc.lock.Lock()
 	defer finc.lock.Unlock()
 
