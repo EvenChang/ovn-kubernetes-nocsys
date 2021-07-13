@@ -2,14 +2,25 @@ package v1
 
 import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+type FloatingIPClaimPhase string
+
+// These are the valid statuses of floatingip
+const (
+	// FloatingIPClaimReady means the floating ip has been creating successful.
+	FloatingIPClaimReady FloatingIPClaimPhase = "Ready"
+	// FloatingIPClaimNotReady means some errors happened.
+	FloatingIPClaimNotReady FloatingIPClaimPhase = "Not Ready"
+)
+
 // +genclient
 // +genclient:nonNamespaced
 // +genclient:noStatus
 // +resource:path=floatingipclaim
 // +kubebuilder:resource:shortName=fic,scope=Cluster
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-// +kubebuilder:printcolumn:name="FloatingIPs",type=string,JSONPath=".spec.floatingIPs[*]"
-// +kubebuilder:printcolumn:name="Assigned FloatingIPs",type=string,JSONPath=".status.assignedIPs[*]"
+// +kubebuilder:printcolumn:name="IPS",type=string,JSONPath=".spec.floatingIPs[*]"
+// +kubebuilder:printcolumn:name="ASSIGN",type=string,JSONPath=".status.assignedIPs[*]"
+// +kubebuilder:printcolumn:name="STATUS",type=string,JSONPath=".status.phase"
 type FloatingIPClaim struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -40,6 +51,10 @@ type FloatingIPClaimSpec struct {
 type FloatingIPClaimStatus struct {
 	// Assigned floating IP
 	AssignedIPs []string `json:"assignedIPs"`
+
+	// The phase of a floating ip.
+	// +optional
+	Phase FloatingIPClaimPhase `json:"phase,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

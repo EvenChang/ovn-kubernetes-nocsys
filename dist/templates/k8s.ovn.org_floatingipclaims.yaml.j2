@@ -20,10 +20,13 @@ spec:
   versions:
   - additionalPrinterColumns:
     - jsonPath: .spec.floatingIPs[*]
-      name: FloatingIPs
+      name: IPS
       type: string
     - jsonPath: .status.assignedIPs[*]
-      name: Assigned FloatingIPs
+      name: ASSIGN
+      type: string
+    - jsonPath: .status.phase
+      name: STATUS
       type: string
     name: v1
     schema:
@@ -158,6 +161,9 @@ spec:
                 items:
                   type: string
                 type: array
+              phase:
+                description: The phase of a floating ip.
+                type: string
             required:
             - assignedIPs
             type: object

@@ -1,6 +1,7 @@
 package floatingipallocator
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"math/big"
@@ -27,6 +28,9 @@ type Interface interface {
 
 	Has(net.IP) bool
 	HasPool(net.IP, net.IP) bool
+
+	Free() int
+	Used() int
 }
 
 type ErrNotInRange struct {
@@ -37,71 +41,88 @@ func (e *ErrNotInRange) Error() string {
 	return fmt.Sprintf("provided ip %s is not in the valid range.", e.ip)
 }
 
-type Range struct {
+type distributor struct {
 	base *big.Int
 	alloc allocator.Interface
+	offsets []int
 }
 
-type ipAddrRange struct {
-	start *big.Int
-	stop *big.Int
+type AddrPair struct {
+	Begin net.IP
+	End net.IP
+	IsPool bool
 }
 
-func NewAllocatorRange(addrs []string) (*Range, error) {
-	base := big.NewInt(0)
-	var ranges []*ipAddrRange
-	for _, addr := range addrs {
-		ips := strings.Split(addr, ",")
-		if len(ips) == 1 {
-			start := utilnet.BigForIP(net.ParseIP(ips[0]))
-			ranges = append(ranges, &ipAddrRange{
-				start: start,
-				stop: start,
-			})
-
-			if base.Int64() == 0 || base.Cmp(start) == 1 {
-				base = start
-			}
-		} else if len(ips) == 2 {
-			start := utilnet.BigForIP(net.ParseIP(ips[0]))
-			stop := utilnet.BigForIP(net.ParseIP(ips[1]))
-			if stop.Cmp(start) < 0 {
-				return nil, ErrInvalidRange
-			}
-			ranges = append(ranges, &ipAddrRange{
-				start: start,
-				stop: stop,
-			})
-			if base.Int64() == 0 || base.Cmp(start) == 1 {
-				base = start
-			}
+func NewAddrPair(addr string) (*AddrPair, error) {
+	ips := strings.Split(addr, ",")
+	if len(ips) == 1 {
+		ip := net.ParseIP(ips[0])
+		if ip.To4() == nil {
+			return nil, fmt.Errorf("%s is not an IPv4 address", ips[0])
+		}
+		return &AddrPair{ ip,ip, false}, nil
+	} else if len(ips) == 2 {
+		begin := net.ParseIP(ips[0])
+		end := net.ParseIP(ips[1])
+		if begin.To4() == nil || end.To4() == nil {
+			return nil, fmt.Errorf("%s or %s is not an IPv4 address", ips[0], ips[1])
+		}
+		if bytes.Compare(begin, end) <=0 {
+			return &AddrPair{ begin,end, true}, nil
 		}
 	}
+	return nil, fmt.Errorf("bad network address format")
+}
 
+func (ap *AddrPair) ToOffset(ip net.IP) []int {
+	base := utilnet.BigForIP(ip)
+	begin := utilnet.BigForIP(ap.Begin)
+	end := utilnet.BigForIP(ap.End)
+
+	// convert to offset
+	start := int(big.NewInt(0).Sub(begin, base).Int64())
+	stop := int(big.NewInt(0).Sub(end, base).Int64())
+	if start < 0 || stop < 0 {
+		return nil
+	}
 	var offsets []int
-	for _, addr := range ranges {
-		start := int(big.NewInt(0).Sub(addr.start, base).Int64())
-		stop := int(big.NewInt(0).Sub(addr.stop, base).Int64())
-		for i := start; i <= stop; i++ {
-			offsets = append(offsets, i)
+	for i := start; i <= stop; i++ {
+		offsets = append(offsets, i)
+	}
+	return offsets
+}
+
+func NewDistributor(aps []*AddrPair) (*distributor, error) {
+	base := aps[0].Begin
+	for _, ap := range aps {
+		if bytes.Compare(ap.Begin, base) < 0 {
+			base = ap.Begin
 		}
 	}
-
-	return &Range{
-		base:  base,
+	var offsets []int
+	for _, ap := range aps {
+		if offset := ap.ToOffset(base); offset == nil {
+			return nil, fmt.Errorf("the offset cannot be calculated")
+		} else {
+			offsets = append(offsets, offset...)
+		}
+	}
+	return &distributor{
+		base:  utilnet.BigForIP(base),
 		alloc: allocator.NewAllocationMap(offsets),
+		offsets: offsets,
 	}, nil
 }
 
-func (r *Range) Free() int {
+func (r *distributor) Free() int {
 	return r.alloc.Free()
 }
 
-func (r *Range) Used() int {
+func (r *distributor) Used() int {
 	return r.alloc.Used()
 }
 
-func (r *Range) Allocate(ip net.IP) error {
+func (r *distributor) Allocate(ip net.IP) error {
 	ok, offset := r.contains(ip)
 	if !ok {
 		return &ErrNotInRange{ip.String()}
@@ -117,7 +138,7 @@ func (r *Range) Allocate(ip net.IP) error {
 	return nil
 }
 
-func (r *Range) AllocatePool(begIp net.IP, endIp net.IP) error {
+func (r *distributor) AllocatePool(begIp net.IP, endIp net.IP) error {
 	ok, beg := r.contains(begIp)
 	if !ok {
 		return &ErrNotInRange{begIp.String()}
@@ -138,7 +159,7 @@ func (r *Range) AllocatePool(begIp net.IP, endIp net.IP) error {
 	return nil
 }
 
-func (r *Range) AllocateNext() (net.IP, error) {
+func (r *distributor) AllocateNext() (net.IP, error) {
 	offset, ok, err := r.alloc.AllocateNext()
 	if err != nil {
 		return nil, err
@@ -149,7 +170,7 @@ func (r *Range) AllocateNext() (net.IP, error) {
 	return utilnet.AddIPOffset(r.base, offset), nil
 }
 
-func (r *Range) Release(ip net.IP) error {
+func (r *distributor) Release(ip net.IP) error {
 	ok, offset := r.contains(ip)
 	if !ok {
 		return nil
@@ -158,7 +179,7 @@ func (r *Range) Release(ip net.IP) error {
 	return r.alloc.Release(offset)
 }
 
-func (r *Range) ReleasePool(begIp net.IP, endIp net.IP) error {
+func (r *distributor) ReleasePool(begIp net.IP, endIp net.IP) error {
 	ok, beg := r.contains(begIp)
 	if !ok {
 		return &ErrNotInRange{begIp.String()}
@@ -172,18 +193,18 @@ func (r *Range) ReleasePool(begIp net.IP, endIp net.IP) error {
 	return r.alloc.ReleasePool(beg, end)
 }
 
-func (r *Range) ForEach(fn func(net.IP)) {
-	r.alloc.ForEach(func(offset int) {
+func (r *distributor) ForEach(fn func(net.IP)) {
+	for _, offset := range r.offsets {
 		fn(utilnet.AddIPOffset(r.base, offset))
-	})
+	}
 }
 
-func (r *Range) Has(ip net.IP) bool {
+func (r *distributor) Has(ip net.IP) bool {
 	ok, _ := r.contains(ip)
 	return ok
 }
 
-func (r *Range) HasPool(begIp, endIp net.IP) bool {
+func (r *distributor) HasPool(begIp, endIp net.IP) bool {
 	ok, beg := r.contains(begIp)
 	if !ok {
 		return false
@@ -197,9 +218,9 @@ func (r *Range) HasPool(begIp, endIp net.IP) bool {
 	return r.alloc.HasPool(beg, end)
 }
 
-func (r *Range) contains(ip net.IP) (bool, int) {
+func (r *distributor) contains(ip net.IP) (bool, int) {
 	offset := calculateIPOffset(r.base, ip)
-	if r.alloc.Has(offset) {
+	if offset >= 0 && r.alloc.Has(offset) {
 		return true, offset
 	}
 	return false, 0

@@ -13,6 +13,8 @@ import (
 	floatingipclientset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/clientset/versioned"
 	floatingipclaimv1 "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1"
 	floatingipclaimclientset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1/apis/clientset/versioned"
+	floatingipproviderv1 "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1"
+	floatingipproviderclientset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1/apis/clientset/versioned"
 	kapi "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -27,11 +29,11 @@ type Interface interface {
 	SetAnnotationsOnPod(namespace, podName string, annotations map[string]string) error
 	SetAnnotationsOnNode(node *kapi.Node, annotations map[string]interface{}) error
 	SetAnnotationsOnNamespace(namespace *kapi.Namespace, annotations map[string]string) error
-	UnsetAnnotationsOnPod(namespace, podName string, annotations []string) error
 	UpdateEgressFirewall(egressfirewall *egressfirewall.EgressFirewall) error
 	UpdateEgressIP(eIP *egressipv1.EgressIP) error
 	UpdateFloatingIP(fIP *floatingipv1.FloatingIP) error
 	UpdateFloatingIPClaim(fic *floatingipclaimv1.FloatingIPClaim) error
+	UpdateFloatingIPProvider(fip *floatingipproviderv1.FloatingIPProvider) error
 	UpdateNodeStatus(node *kapi.Node) error
 	GetAnnotationsOnPod(namespace, name string) (map[string]string, error)
 	GetNodes() (*kapi.NodeList, error)
@@ -44,6 +46,9 @@ type Interface interface {
 	GetFloatingIPs() (*floatingipv1.FloatingIPList, error)
 	GetFloatingIPClaim(name string) (*floatingipclaimv1.FloatingIPClaim, error)
 	GetFloatingIPClaims() (*floatingipclaimv1.FloatingIPClaimList, error)
+	DeleteFloatingIPClaim(name string) error
+	GetFloatingIPProvider(name string) (*floatingipproviderv1.FloatingIPProvider, error)
+	GetFloatingIPProviders() (*floatingipproviderv1.FloatingIPProviderList, error)
 	GetNamespaces(labelSelector metav1.LabelSelector) (*kapi.NamespaceList, error)
 	GetPods(namespace string, labelSelector metav1.LabelSelector) (*kapi.PodList, error)
 	GetPod(namespace, name string) (*kapi.Pod, error)
@@ -60,6 +65,7 @@ type Kube struct {
 	EgressFirewallClient egressfirewallclientset.Interface
 	FIPClient            floatingipclientset.Interface
 	FIPCClient           floatingipclaimclientset.Interface
+	FIPPClient           floatingipproviderclientset.Interface
 }
 
 // SetAnnotationsOnPod takes the pod object and map of key/value string pairs to set as annotations
@@ -141,37 +147,6 @@ func (k *Kube) SetAnnotationsOnNamespace(namespace *kapi.Namespace, annotations 
 	return err
 }
 
-func (k *Kube) UnsetAnnotationsOnPod(namespace, podName string, annotations []string) error {
-	var err error
-	var patchData []byte
-	patch := struct {
-		Metadata map[string]interface{} `json:"metadata"`
-	}{
-		Metadata: map[string]interface{}{
-			"annotations": func() map[string]interface{} {
-				v := make(map[string]interface{})
-				for _, annotation := range annotations {
-					v[annotation] = nil
-				}
-				return v
-			}() ,
-		},
-	}
-
-	podDesc := namespace + "/" + podName
-	klog.Infof("Setting annotations %v on pod %s", annotations, podDesc)
-	patchData, err = json.Marshal(&patch)
-	if err != nil {
-		klog.Errorf("Error in setting annotations on pod %s: %v", podDesc, err)
-		return err
-	}
-
-	if _, err = k.KClient.CoreV1().Pods(namespace).Patch(context.TODO(), podName, types.MergePatchType, patchData, metav1.PatchOptions{}); err != nil {
-		klog.Errorf("Error in setting annotation on pod %s: %v", podDesc, err)
-	}
-	return err
-}
-
 // UpdateEgressFirewall updates the EgressFirewall with the provided EgressFirewall data
 func (k *Kube) UpdateEgressFirewall(egressfirewall *egressfirewall.EgressFirewall) error {
 	klog.Infof("Updating status on EgressFirewall %s in namespace %s", egressfirewall.Name, egressfirewall.Namespace)
@@ -196,6 +171,12 @@ func (k *Kube) UpdateFloatingIP(fIP *floatingipv1.FloatingIP) error {
 func (k *Kube) UpdateFloatingIPClaim(fic *floatingipclaimv1.FloatingIPClaim) error {
 	klog.Infof("Updating status on FloatingIPClaim %s", fic.Name)
 	_, err := k.FIPCClient.K8sV1().FloatingIPClaims().Update(context.TODO(), fic, metav1.UpdateOptions{})
+	return err
+}
+
+func (k *Kube) UpdateFloatingIPProvider(fip *floatingipproviderv1.FloatingIPProvider) error {
+	klog.Infof("Updating status on FloatingIPProvider %s", fip.Name)
+	_, err := k.FIPPClient.K8sV1().FloatingIPProviders().Update(context.TODO(), fip, metav1.UpdateOptions{})
 	return err
 }
 
@@ -284,6 +265,18 @@ func (k *Kube) GetFloatingIPClaim(name string) (*floatingipclaimv1.FloatingIPCla
 
 func (k *Kube) GetFloatingIPClaims() (*floatingipclaimv1.FloatingIPClaimList, error) {
 	return k.FIPCClient.K8sV1().FloatingIPClaims().List(context.TODO(), metav1.ListOptions{})
+}
+
+func (k *Kube) DeleteFloatingIPClaim(name string) error {
+	return k.FIPCClient.K8sV1().FloatingIPClaims().Delete(context.TODO(), name, metav1.DeleteOptions{})
+}
+
+func (k *Kube) GetFloatingIPProvider(name string) (*floatingipproviderv1.FloatingIPProvider, error) {
+	return k.FIPPClient.K8sV1().FloatingIPProviders().Get(context.TODO(), name, metav1.GetOptions{})
+}
+
+func (k *Kube) GetFloatingIPProviders() (*floatingipproviderv1.FloatingIPProviderList, error) {
+	return k.FIPPClient.K8sV1().FloatingIPProviders().List(context.TODO(), metav1.ListOptions{})
 }
 
 // GetEndpoint returns the Endpoints resource

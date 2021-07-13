@@ -121,31 +121,6 @@ func (r *AllocationBitmap) ReleasePool(beg, end int) error {
 	return nil
 }
 
-const (
-	// Find the size of a big.Word in bytes.
-	notZero   = uint64(^big.Word(0))
-	wordPower = (notZero>>8)&1 + (notZero>>16)&1 + (notZero>>32)&1
-	wordSize  = 1 << wordPower
-)
-
-func (r *AllocationBitmap) ForEach(fn func(int)) {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-
-	words := r.allocated.Bits()
-	for wordIdx, word := range words {
-		bit := 0
-		for word > 0 {
-			if (word & 1) != 0 {
-				fn((wordIdx * wordSize * 8) + bit)
-				word = word &^ 1
-			}
-			bit++
-			word = word >> 1
-		}
-	}
-}
-
 func (r *AllocationBitmap) Has(offset int) bool {
 	r.lock.Lock()
 	defer r.lock.Unlock()

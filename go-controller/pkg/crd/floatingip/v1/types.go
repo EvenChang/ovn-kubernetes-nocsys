@@ -11,6 +11,7 @@ import (
 // +kubebuilder:resource:shortName=fi,scope=Cluster
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:printcolumn:name="FloatingIPClaim",type=string,JSONPath=".spec.floatingIPClaim"
+// +kubebuilder:printcolumn:name="Namespace",type=string,JSONPath=".spec.podNamespace"
 // +kubebuilder:printcolumn:name="Pod",type=string,JSONPath=".spec.pod"
 // +kubebuilder:printcolumn:name="Node",type=string,JSONPath=".status.nodeName"
 // +kubebuilder:printcolumn:name="FloatingIP",type=string,JSONPath=".status.floatingIP"

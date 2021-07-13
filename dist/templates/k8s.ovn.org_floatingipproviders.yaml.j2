@@ -19,11 +19,11 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.floatingIPs[*]
-      name: FloatingIPs
+    - jsonPath: .status.floatingIPClaims[*]
+      name: CLAIMS
       type: string
-    - jsonPath: .status.items[*].floatingIPs[*]
-      name: Assigned FloatingIP
+    - jsonPath: .status.phase
+      name: STATUS
       type: string
     name: v1
     schema:
@@ -102,28 +102,15 @@ spec:
           status:
             description: Observed status of FloatingIPProvider. Read-only
             properties:
-              items:
-                description: The list of assigned floating IPs and their corresponding
-                  FloatingIP.
+              floatingIPClaims:
                 items:
-                  description: The per FloatingIP status, for those floating ip who
-                    have been claimed.
-                  properties:
-                    floatingIPClaim:
-                      description: floatingIPClaim's name
-                      type: string
-                    floatingIPs:
-                      description: floating ip addresses
-                      items:
-                        type: string
-                      type: array
-                  required:
-                  - floatingIPClaim
-                  - floatingIPs
-                  type: object
+                  type: string
                 type: array
+              phase:
+                description: The phase of a floating ip.
+                type: string
             required:
-            - items
+            - floatingIPClaims
             type: object
         required:
         - spec

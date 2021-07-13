@@ -22,7 +22,6 @@ type Interface interface {
 	AllocateNext() (int, bool, error)
 	Release(int) error
 	ReleasePool(int, int) error
-	ForEach(func(int))
 	Has(int) bool
 	HasPool(int, int) bool
 	Free() int
