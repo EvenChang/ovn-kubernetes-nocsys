@@ -7,14 +7,14 @@ import (
 )
 
 var (
-	ErrInvalidRange      = errors.New("invalid range")
+	ErrInvalidRange = errors.New("invalid range")
 )
 
 type AllocationBitmap struct {
-	max int
-	lock sync.Mutex
-	count int
-	limit int
+	max                  int
+	lock                 sync.Mutex
+	count                int
+	limit                int
 	available, allocated *big.Int
 }
 
@@ -22,10 +22,10 @@ var _ Interface = &AllocationBitmap{}
 
 func NewAllocationMap(offsets []int) *AllocationBitmap {
 	bitmap := &AllocationBitmap{
-		max: len(offsets),
-		lock: sync.Mutex{},
-		count: 0,
-		limit: 0,
+		max:       len(offsets),
+		lock:      sync.Mutex{},
+		count:     0,
+		limit:     0,
 		available: big.NewInt(0),
 		allocated: big.NewInt(0),
 	}

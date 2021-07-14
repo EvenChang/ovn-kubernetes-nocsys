@@ -17,7 +17,7 @@ import (
 // +kubebuilder:printcolumn:name="FloatingIP",type=string,JSONPath=".status.floatingIP"
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=".status.phase"
 type FloatingIP struct {
-	metav1.TypeMeta `json:",inline"`
+	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Specification of the desired behavior of FloatingIPClaim.

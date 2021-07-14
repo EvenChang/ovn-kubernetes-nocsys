@@ -86,7 +86,7 @@ var (
 	namespaceType          reflect.Type = reflect.TypeOf(&kapi.Namespace{})
 	nodeType               reflect.Type = reflect.TypeOf(&kapi.Node{})
 	egressFirewallType     reflect.Type = reflect.TypeOf(&egressfirewallapi.EgressFirewall{})
-	egressIPType		   reflect.Type = reflect.TypeOf(&egressipapi.EgressIP{})
+	egressIPType           reflect.Type = reflect.TypeOf(&egressipapi.EgressIP{})
 	floatingIPProviderType reflect.Type = reflect.TypeOf(&floatingipproviderapi.FloatingIPProvider{})
 	floatingIPClaimType    reflect.Type = reflect.TypeOf(&floatingipclaimapi.FloatingIPClaim{})
 	floatingIPType         reflect.Type = reflect.TypeOf(&floatingipapi.FloatingIP{})
@@ -103,9 +103,9 @@ func NewMasterWatchFactory(ovnClientset *util.OVNClientset) (*WatchFactory, erro
 	wf := &WatchFactory{
 		iFactory:    informerfactory.NewSharedInformerFactory(ovnClientset.KubeClient, resyncInterval),
 		eipFactory:  egressipinformerfactory.NewSharedInformerFactory(ovnClientset.EgressIPClient, resyncInterval),
-		fipFactory: floatingipproviderfactory.NewSharedInformerFactory(ovnClientset.FloatingIPProviderClient, resyncInterval),
-		ficFactory: floatingipclaimfactory.NewSharedInformerFactory(ovnClientset.FloatingIPClaimClient, resyncInterval),
-		fiFactory: floatingipfactory.NewSharedInformerFactory(ovnClientset.FloatingIPClient, resyncInterval),
+		fipFactory:  floatingipproviderfactory.NewSharedInformerFactory(ovnClientset.FloatingIPProviderClient, resyncInterval),
+		ficFactory:  floatingipclaimfactory.NewSharedInformerFactory(ovnClientset.FloatingIPClaimClient, resyncInterval),
+		fiFactory:   floatingipfactory.NewSharedInformerFactory(ovnClientset.FloatingIPClient, resyncInterval),
 		efClientset: ovnClientset.EgressFirewallClient,
 		informers:   make(map[reflect.Type]*informer),
 		stopChan:    make(chan struct{}),
@@ -204,7 +204,7 @@ func NewMasterWatchFactory(ovnClientset *util.OVNClientset) (*WatchFactory, erro
 		}
 
 	}
-	
+
 	wf.informers[floatingIPProviderType], err = newInformer(floatingIPProviderType, wf.fipFactory.K8s().V1().FloatingIPProviders().Informer())
 	if err != nil {
 		return nil, err
@@ -244,7 +244,7 @@ func NewMasterWatchFactory(ovnClientset *util.OVNClientset) (*WatchFactory, erro
 func NewNodeWatchFactory(ovnClientset *util.OVNClientset, nodeName string) (*WatchFactory, error) {
 	wf := &WatchFactory{
 		iFactory:    informerfactory.NewSharedInformerFactory(ovnClientset.KubeClient, resyncInterval),
-		fiFactory: floatingipfactory.NewSharedInformerFactory(ovnClientset.FloatingIPClient, resyncInterval),
+		fiFactory:   floatingipfactory.NewSharedInformerFactory(ovnClientset.FloatingIPClient, resyncInterval),
 		efClientset: ovnClientset.EgressFirewallClient,
 		informers:   make(map[reflect.Type]*informer),
 		stopChan:    make(chan struct{}),

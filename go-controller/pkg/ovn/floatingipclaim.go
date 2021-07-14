@@ -24,29 +24,29 @@ import (
 )
 
 type PodID struct {
-	name string
+	name      string
 	namespace string
 }
 
 type floatingIPClaimController struct {
-	client kube.Interface
-	watchFactory     *factory.WatchFactory
-	eventRecorder    record.EventRecorder
+	client        kube.Interface
+	watchFactory  *factory.WatchFactory
+	eventRecorder record.EventRecorder
 
-	queue workqueue.RateLimitingInterface
+	queue            workqueue.RateLimitingInterface
 	workerLoopPeriod time.Duration
 
-	ficMutex *sync.RWMutex
-	allocators map[string]floatingipallocator.Interface // floating ip alloctor for provider
+	ficMutex      *sync.RWMutex
+	allocators    map[string]floatingipallocator.Interface // floating ip alloctor for provider
 	suballocators map[string]floatingipallocator.Interface // floating ip alloctor for floating ip claim
 
 	nodeMutex *sync.Mutex
 	fiOnNodes map[string]int // store floating ip node
 
-	nsMutex *sync.Mutex
+	nsMutex    *sync.Mutex
 	nsHandlers map[string]factory.Handler // store namespace watch for floating ip claim
 
-	podMutex *sync.Mutex
+	podMutex   *sync.Mutex
 	podHanders map[string]factory.Handler // store pod(under namespace) watch for floating ip claim
 }
 
@@ -384,12 +384,12 @@ func (ficc *floatingIPClaimController) sync(key string) error {
 					*metav1.NewControllerRef(ficObj, floatingipclaimapi.SchemeGroupVersion.WithKind("FloatingIPClaim")),
 				},
 			},
-			Spec:       floatingipapi.FloatingIPSpec{
+			Spec: floatingipapi.FloatingIPSpec{
 				FloatingIPClaim: ficObj.Name,
 				Pod:             pod.Name,
 				PodNamespace:    pod.Namespace,
 			},
-			Status:     floatingipapi.FloatingIPStatus{
+			Status: floatingipapi.FloatingIPStatus{
 				NodeName:    node,
 				FloatingIP:  ip.To4().String(),
 				HostNetwork: pod.Spec.HostNetwork,

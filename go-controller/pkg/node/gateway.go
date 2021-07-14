@@ -135,8 +135,8 @@ func (g *gateway) AddFloatingIP(fip *floatingipv1.FloatingIP) {
 		klog.V(5).Infof("Skipping Floating IP creating for: %v which is not assign floating ip", fip)
 		return
 	}
-    g.updateFloatingIPFlowCache(fip, true)
-    g.openflowManager.requestFlowSync()
+	g.updateFloatingIPFlowCache(fip, true)
+	g.openflowManager.requestFlowSync()
 }
 
 func (g *gateway) UpdateFloatingIP(old, new *floatingipv1.FloatingIP) {
@@ -145,11 +145,11 @@ func (g *gateway) UpdateFloatingIP(old, new *floatingipv1.FloatingIP) {
 		return
 	}
 
-    if reflect.DeepEqual(new.Spec.Pod, old.Spec.Pod) &&
+	if reflect.DeepEqual(new.Spec.Pod, old.Spec.Pod) &&
 		reflect.DeepEqual(new.Spec.PodNamespace, old.Spec.PodNamespace) &&
 		reflect.DeepEqual(new.Status.NodeName, old.Status.NodeName) &&
-    	reflect.DeepEqual(new.Status.FloatingIP, old.Status.FloatingIP) {
-		klog.V(5).Infof("Skipping Floating IP updating for: %s as change does not apply to any of" +
+		reflect.DeepEqual(new.Status.FloatingIP, old.Status.FloatingIP) {
+		klog.V(5).Infof("Skipping Floating IP updating for: %s as change does not apply to any of"+
 			".Spec.Pod, .Spec.PodNamespace, .Status.NodeName, .Status.FloatingIP", new.Name)
 		return
 	}
@@ -157,18 +157,18 @@ func (g *gateway) UpdateFloatingIP(old, new *floatingipv1.FloatingIP) {
 	if strings.Compare(old.Status.NodeName, g.nodeName) == 0 && util.IsIP(old.Status.FloatingIP) {
 		g.updateFloatingIPFlowCache(old, false)
 	}
-    if strings.Compare(new.Status.NodeName, g.nodeName) == 0 && util.IsIP(new.Status.FloatingIP) {
-    	g.updateFloatingIPFlowCache(new, true)
+	if strings.Compare(new.Status.NodeName, g.nodeName) == 0 && util.IsIP(new.Status.FloatingIP) {
+		g.updateFloatingIPFlowCache(new, true)
 	}
-    g.openflowManager.requestFlowSync()
+	g.openflowManager.requestFlowSync()
 }
 
 func (g *gateway) SyncFloatingIP(objs []interface{}) {
-    for _, floatingIPInterface := range objs {
-    	fip, ok := floatingIPInterface.(*floatingipv1.FloatingIP)
-    	if !ok {
-    		klog.Errorf("Spurious object in sync Floating IP: %v", floatingIPInterface)
-    		continue
+	for _, floatingIPInterface := range objs {
+		fip, ok := floatingIPInterface.(*floatingipv1.FloatingIP)
+		if !ok {
+			klog.Errorf("Spurious object in sync Floating IP: %v", floatingIPInterface)
+			continue
 		}
 
 		if strings.Compare(fip.Status.NodeName, g.nodeName) != 0 {
@@ -196,8 +196,8 @@ func (g *gateway) DeleteFloatingIP(fip *floatingipv1.FloatingIP) {
 		klog.V(5).Infof("Skipping Floating IP delete for: %v which is not create", fip)
 		return
 	}
-    g.updateFloatingIPFlowCache(fip, false)
-    g.openflowManager.requestFlowSync()
+	g.updateFloatingIPFlowCache(fip, false)
+	g.openflowManager.requestFlowSync()
 }
 
 func (g *gateway) updateFloatingIPFlowCache(fip *floatingipv1.FloatingIP, add bool) {
@@ -377,7 +377,7 @@ func (g *gateway) GetGatewayBridgeIface() string {
 func FloatingIPToCookie(node string, pod string, ip string) (string, error) {
 	id := fmt.Sprintf("%s%s%s", node, pod, ip)
 	h := fnv.New64a()
-	_,err := h.Write([]byte(id))
+	_, err := h.Write([]byte(id))
 	if err != nil {
 		return "", err
 	}

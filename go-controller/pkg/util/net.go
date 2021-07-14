@@ -292,5 +292,5 @@ func MatchAllIPStringFamily(isIPv6 bool, ipStrings []string) ([]string, error) {
 
 // IsIP to validate whether a string is valid for IP address or not
 func IsIP(ip string) bool {
-    return net.ParseIP(ip) != nil
+	return net.ParseIP(ip) != nil
 }

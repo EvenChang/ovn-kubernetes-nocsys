@@ -19,8 +19,8 @@ func TestAllocate(t *testing.T) {
 	if m.count != 5 {
 		t.Errorf("expect to get %d, but got %d", 5, m.count)
 	}
-	if f := m.Free(); f != len(offsets) - 5 {
-		t.Errorf("expect to get %d, but got %d", len(offsets) - 5, f)
+	if f := m.Free(); f != len(offsets)-5 {
+		t.Errorf("expect to get %d, but got %d", len(offsets)-5, f)
 	}
 }
 
@@ -86,7 +86,7 @@ func TestRelease(t *testing.T) {
 	if ok, _ := m.Allocate(5); !ok {
 		t.Errorf("expect offset %v not allocated", 5)
 	}
-	if f := m.Free(); f != len(offsets) - 1 {
-		t.Errorf("expect to get %d, but got %d", len(offsets) - 1, f)
+	if f := m.Free(); f != len(offsets)-1 {
+		t.Errorf("expect to get %d, but got %d", len(offsets)-1, f)
 	}
 }

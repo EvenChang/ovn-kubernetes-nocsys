@@ -22,7 +22,7 @@ const (
 // +kubebuilder:printcolumn:name="ASSIGN",type=string,JSONPath=".status.assignedIPs[*]"
 // +kubebuilder:printcolumn:name="STATUS",type=string,JSONPath=".status.phase"
 type FloatingIPClaim struct {
-	metav1.TypeMeta `json:",inline"`
+	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Specification of the desired behavior of FloatingIPClaim.

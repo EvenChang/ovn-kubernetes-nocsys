@@ -5,24 +5,23 @@ import (
 	"strings"
 	"time"
 
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/klog/v2"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/kube"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
+	v1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
 )
 
 type floatingIPNodeController struct {
 	ficc *floatingIPClaimController
 
-	client kube.Interface
-	queue workqueue.RateLimitingInterface
+	client           kube.Interface
+	queue            workqueue.RateLimitingInterface
 	workerLoopPeriod time.Duration
 }
-
 
 func (finc *floatingIPNodeController) addFloatingIPNode(obj interface{}) {
 	node := obj.(*v1.Node)
@@ -212,7 +211,7 @@ func (finc *floatingIPNodeController) DeleteNode(node *v1.Node) {
 	nodeEgressLabel := util.GetNodeEgressLabel()
 	nodeLabels := node.GetLabels()
 	if _, hasEgressLabel := nodeLabels[nodeEgressLabel]; !hasEgressLabel {
-		util.DeleteGARP(types.EXTSwitchToGWRouterPrefix + types.GWRouterPrefix + node.Name);
+		util.DeleteGARP(types.EXTSwitchToGWRouterPrefix + types.GWRouterPrefix + node.Name)
 	}
 
 	finc.ficc.nodeMutex.Lock()
@@ -233,7 +232,7 @@ func (finc *floatingIPNodeController) isFloatingIPNodeReachable(node *v1.Node) b
 	reachable := false
 	v4IfAddr, _, err := util.ParseNodePrimaryIfAddr(node)
 	if err != nil {
-		klog.Errorf("unable to use node for floating ip assignment, err: %v", err)
+		klog.Errorf("Unable to use node for floating ip assignment, err: %v", err)
 		return reachable
 	}
 

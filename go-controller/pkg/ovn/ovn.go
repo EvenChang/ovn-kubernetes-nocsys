@@ -289,8 +289,8 @@ func NewOvnController(ovnClient *util.OVNClientset, wf *factory.WatchFactory,
 		workerLoopPeriod: time.Second,
 	}
 	return &Controller{
-		client: ovnClient.KubeClient,
-		kube: kube,
+		client:                    ovnClient.KubeClient,
+		kube:                      kube,
 		watchFactory:              wf,
 		stopChan:                  stopChan,
 		masterSubnetAllocator:     subnetallocator.NewSubnetAllocator(),
@@ -314,9 +314,9 @@ func NewOvnController(ovnClient *util.OVNClientset, wf *factory.WatchFactory,
 			allocatorMutex:        &sync.Mutex{},
 			allocator:             make(map[string]*egressNode),
 		},
-		fIPCC: ficc,
-		fIPNC: finc,
-		fIPPC: fipc,
+		fIPCC:                    ficc,
+		fIPNC:                    finc,
+		fIPPC:                    fipc,
 		loadbalancerClusterCache: make(map[kapi.Protocol]string),
 		multicastSupport:         config.EnableMulticast,
 		aclLoggingEnabled:        true,
@@ -611,7 +611,7 @@ func (oc *Controller) WatchEgressFirewall() *factory.Handler {
 			} else {
 				_, stderr, err := txn.Commit()
 				if err != nil {
-					klog.Errorf("failed to commit db changes for egressFirewall in namespace %s stderr: %q, err: %+v", egressFirewall.Namespace, stderr, err)
+					klog.Errorf("Failed to commit db changes for gressFirewall in namespace %s stderr: %q, err: %+v", egressFirewall.Namespace, stderr, err)
 					egressFirewall.Status.Status = egressFirewallAddError
 				} else {
 					egressFirewall.Status.Status = egressFirewallAppliedCorrectly
@@ -635,7 +635,7 @@ func (oc *Controller) WatchEgressFirewall() *factory.Handler {
 				} else {
 					_, stderr, err := txn.Commit()
 					if err != nil {
-						klog.Errorf("failed to commit db changes for egressFirewall in namespace %s stderr: %q, err: %+v", newEgressFirewall.Namespace, stderr, err)
+						klog.Errorf("Failed to commit db changes for egressFirewall in namespace %s stderr: %q, err: %+v", newEgressFirewall.Namespace, stderr, err)
 						newEgressFirewall.Status.Status = egressFirewallUpdateError
 
 					} else {
@@ -658,7 +658,7 @@ func (oc *Controller) WatchEgressFirewall() *factory.Handler {
 			}
 			stdout, stderr, err := txn.Commit()
 			if err != nil {
-				klog.Errorf("failed to commit db changes for egressFirewall in namespace %s stdout: %q, stderr: %q, err: %+v", egressFirewall.Namespace, stdout, stderr, err)
+				klog.Errorf("Failed to commit db changes for egressFirewall in namespace %s stdout: %q, stderr: %q, err: %+v", egressFirewall.Namespace, stdout, stderr, err)
 			}
 		},
 	}, oc.syncEgressFirewall)
@@ -824,17 +824,17 @@ func (oc *Controller) WatchFloatingIP() {
 			}
 		},
 		UpdateFunc: func(old, new interface{}) {
-            oldFIP := old.(*floatingipv1.FloatingIP)
-            newFIP := new.(*floatingipv1.FloatingIP).DeepCopy()
-            if !reflect.DeepEqual(oldFIP.Status.NodeName, newFIP.Status.NodeName) &&
-			!reflect.DeepEqual(oldFIP.Status.FloatingIP, newFIP.Status.FloatingIP) {
-            	if oldFIP.Status.NodeName != "" && util.IsIP(oldFIP.Status.FloatingIP) {
+			oldFIP := old.(*floatingipv1.FloatingIP)
+			newFIP := new.(*floatingipv1.FloatingIP).DeepCopy()
+			if !reflect.DeepEqual(oldFIP.Status.NodeName, newFIP.Status.NodeName) &&
+				!reflect.DeepEqual(oldFIP.Status.FloatingIP, newFIP.Status.FloatingIP) {
+				if oldFIP.Status.NodeName != "" && util.IsIP(oldFIP.Status.FloatingIP) {
 					if err := oc.deleteFloatingIP(oldFIP); err != nil {
 						klog.Error(err)
 					}
 				}
 
-                if newFIP.Status.NodeName != "" && util.IsIP(newFIP.Status.FloatingIP) {
+				if newFIP.Status.NodeName != "" && util.IsIP(newFIP.Status.FloatingIP) {
 					if err := oc.addFloatingIP(newFIP); err != nil {
 						klog.Error(err)
 					}
@@ -845,8 +845,8 @@ func (oc *Controller) WatchFloatingIP() {
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
-            fIP := obj.(*floatingipv1.FloatingIP)
-            if fIP.Status.NodeName != "" || util.IsIP(fIP.Status.FloatingIP) {
+			fIP := obj.(*floatingipv1.FloatingIP)
+			if fIP.Status.NodeName != "" || util.IsIP(fIP.Status.FloatingIP) {
 				if err := oc.deleteFloatingIP(fIP); err != nil {
 					klog.Error(err)
 				}

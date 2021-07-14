@@ -34,12 +34,12 @@ import (
 
 // OVNClientset is a wrapper around all clientsets used by OVN-Kubernetes
 type OVNClientset struct {
-	KubeClient           kubernetes.Interface
-	EgressIPClient       egressipclientset.Interface
-	EgressFirewallClient egressfirewallclientset.Interface
+	KubeClient               kubernetes.Interface
+	EgressIPClient           egressipclientset.Interface
+	EgressFirewallClient     egressfirewallclientset.Interface
 	FloatingIPProviderClient floatingipproviderclientset.Interface
-	FloatingIPClaimClient floatingipclaimclientset.Interface
-	FloatingIPClient floatingipclientset.Interface
+	FloatingIPClaimClient    floatingipclaimclientset.Interface
+	FloatingIPClient         floatingipclientset.Interface
 }
 
 func adjustCommit() string {
@@ -148,12 +148,12 @@ func NewOVNClientset(conf *config.KubernetesConfig) (*OVNClientset, error) {
 		return nil, err
 	}
 	return &OVNClientset{
-		KubeClient:           kclientset,
-		EgressIPClient:       egressIPClientset,
-		EgressFirewallClient: egressFirewallClientset,
+		KubeClient:               kclientset,
+		EgressIPClient:           egressIPClientset,
+		EgressFirewallClient:     egressFirewallClientset,
 		FloatingIPProviderClient: floatingIPProviderClientset,
-		FloatingIPClaimClient: floatingIPClaimClientset,
-		FloatingIPClient: floatingIPClientset,
+		FloatingIPClaimClient:    floatingIPClaimClientset,
+		FloatingIPClient:         floatingIPClientset,
 	}, nil
 }
 

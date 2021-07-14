@@ -30,9 +30,9 @@ const (
 type floatingIpProviderController struct {
 	ficc *floatingIPClaimController
 
-	client kube.Interface
+	client           kube.Interface
 	eventRecorder    record.EventRecorder
-	queue workqueue.RateLimitingInterface
+	queue            workqueue.RateLimitingInterface
 	workerLoopPeriod time.Duration
 }
 

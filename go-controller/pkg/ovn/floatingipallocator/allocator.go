@@ -13,9 +13,9 @@ import (
 )
 
 var (
-	ErrFull              = errors.New("range is full")
-	ErrAllocated         = errors.New("provided IP is already allocated")
-	ErrInvalidRange      = errors.New("invalid ip range")
+	ErrFull         = errors.New("range is full")
+	ErrAllocated    = errors.New("provided IP is already allocated")
+	ErrInvalidRange = errors.New("invalid ip range")
 )
 
 type Interface interface {
@@ -42,14 +42,14 @@ func (e *ErrNotInRange) Error() string {
 }
 
 type distributor struct {
-	base *big.Int
-	alloc allocator.Interface
+	base    *big.Int
+	alloc   allocator.Interface
 	offsets []int
 }
 
 type AddrPair struct {
-	Begin net.IP
-	End net.IP
+	Begin  net.IP
+	End    net.IP
 	IsPool bool
 }
 
@@ -60,15 +60,15 @@ func NewAddrPair(addr string) (*AddrPair, error) {
 		if ip.To4() == nil {
 			return nil, fmt.Errorf("%s is not an IPv4 address", ips[0])
 		}
-		return &AddrPair{ ip,ip, false}, nil
+		return &AddrPair{ip, ip, false}, nil
 	} else if len(ips) == 2 {
 		begin := net.ParseIP(ips[0])
 		end := net.ParseIP(ips[1])
 		if begin.To4() == nil || end.To4() == nil {
 			return nil, fmt.Errorf("%s or %s is not an IPv4 address", ips[0], ips[1])
 		}
-		if bytes.Compare(begin, end) <=0 {
-			return &AddrPair{ begin,end, true}, nil
+		if bytes.Compare(begin, end) <= 0 {
+			return &AddrPair{begin, end, true}, nil
 		}
 	}
 	return nil, fmt.Errorf("bad network address format")
@@ -108,8 +108,8 @@ func NewDistributor(aps []*AddrPair) (*distributor, error) {
 		}
 	}
 	return &distributor{
-		base:  utilnet.BigForIP(base),
-		alloc: allocator.NewAllocationMap(offsets),
+		base:    utilnet.BigForIP(base),
+		alloc:   allocator.NewAllocationMap(offsets),
 		offsets: offsets,
 	}, nil
 }

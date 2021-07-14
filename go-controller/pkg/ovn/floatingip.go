@@ -61,11 +61,11 @@ func (oc *Controller) deleteFloatingIP(fIP *floatingipv1.FloatingIP) error {
 }
 
 func (oc *Controller) syncFloatingIPs(objs []interface{}) {
-    for _, floatingIPInterface := range objs {
-    	fIP, ok := floatingIPInterface.(*floatingipv1.FloatingIP)
-    	if !ok {
-    		klog.Errorf("Spurious object in sync Floating IP: %v", floatingIPInterface)
-    		continue
+	for _, floatingIPInterface := range objs {
+		fIP, ok := floatingIPInterface.(*floatingipv1.FloatingIP)
+		if !ok {
+			klog.Errorf("Spurious object in sync Floating IP: %v", floatingIPInterface)
+			continue
 		}
 
 		if !util.IsIP(fIP.Status.FloatingIP) {
@@ -78,13 +78,13 @@ func (oc *Controller) syncFloatingIPs(objs []interface{}) {
 		if err := oc.addFloatingIP(floatingIP); err != nil {
 			klog.Error(err)
 		}
-    	if err := oc.updateFloatingIPWithRetry(floatingIP); err != nil {
-    		klog.Error(err)
+		if err := oc.updateFloatingIPWithRetry(floatingIP); err != nil {
+			klog.Error(err)
 		}
 	}
 }
 
-func (oc *Controller) updateFloatingIPWithRetry(fIP *floatingipv1.FloatingIP) error{
+func (oc *Controller) updateFloatingIPWithRetry(fIP *floatingipv1.FloatingIP) error {
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		return oc.kube.UpdateFloatingIP(fIP)
 	})
@@ -105,7 +105,7 @@ func findOneToOneNatIDs(floatingIPName, podIP, floatingIP string) ([]string, err
 		fmt.Sprintf("external_ids:name=%s", floatingIPName),
 		fmt.Sprintf("logical_ip=\"%s\"", podIP),
 		fmt.Sprintf("external_ip=\"%s\"", floatingIP),
-		)
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to find dnat_and_snat ID, stderr: %s, err: %v", stderr, err)
 	}
@@ -141,10 +141,10 @@ func (f *floatingIPController) deletePodFloatingIP(podIPs []net.IP, fip *floatin
 }
 
 func (f *floatingIPController) createReroutePolicy(podIPs []net.IP, status floatingipv1.FloatingIPStatus, fIPName string) error {
-    isFloatingIPv6 := utilnet.IsIPv6String(status.FloatingIP)
-    gatewayRouterIP, err := f.getGatewayRouterJoinIP(status.NodeName, isFloatingIPv6)
-    if err!= nil {
-    	return fmt.Errorf("unable to retrieve gateway IP for node: %s, err: %v", status.NodeName, err)
+	isFloatingIPv6 := utilnet.IsIPv6String(status.FloatingIP)
+	gatewayRouterIP, err := f.getGatewayRouterJoinIP(status.NodeName, isFloatingIPv6)
+	if err != nil {
+		return fmt.Errorf("unable to retrieve gateway IP for node: %s, err: %v", status.NodeName, err)
 	}
 	for _, podIP := range podIPs {
 		var err error
@@ -174,7 +174,7 @@ func (f *floatingIPController) createReroutePolicy(podIPs []net.IP, status float
 				types.OVNClusterRouter,
 				"policies",
 				"@lr-policy",
-				)
+			)
 			if err != nil {
 				return fmt.Errorf("unable to create logical router policy: %s, stderr: %s, err: %v", status.FloatingIP, stderr, err)
 			}
@@ -207,7 +207,7 @@ func (f *floatingIPController) deleteReroutePolicy(podIPs []net.IP, status float
 				types.OVNClusterRouter,
 				"policies",
 				policyID,
-				)
+			)
 			if err != nil {
 				return fmt.Errorf("unable to remove logicaal router policy: %s, stderr: %s, err: %v", status.FloatingIP, stderr, err)
 			}
@@ -268,7 +268,7 @@ func (f *floatingIPController) deleteNATRule(podIPs []net.IP, status floatingipv
 					util.GetGatewayRouterFromNode(status.NodeName),
 					"nat",
 					natID,
-					)
+				)
 				if err != nil {
 					return fmt.Errorf("unable to remove nat from logical_router, stderr: %s, err: %v", stderr, err)
 				}
@@ -319,7 +319,7 @@ func (f *floatingIPController) findReroutePolicyIDs(filterOption, fIPName string
 		fmt.Sprintf("priority=%v", types.FloatingIPReroutePriority),
 		fmt.Sprintf("external_ids:name=%s", fIPName),
 		fmt.Sprintf("nexthop=\"%s\"", gatewayRouterIP),
-		)
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to find logical router policy for FloatingIP: %s, stderr: %s, err: %v", fIPName, stderr, err)
 	}
