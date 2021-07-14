@@ -18,6 +18,10 @@ import (
 	utilnet "k8s.io/utils/net"
 )
 
+const (
+	BandWidthPriority int = 100
+)
+
 // Builds the logical switch port name for a given pod.
 func podLogicalPortName(pod *kapi.Pod) string {
 	return pod.Namespace + "_" + pod.Name
@@ -134,6 +138,9 @@ func (oc *Controller) deleteLogicalPort(pod *kapi.Pod) {
 	}
 	oc.deleteGWRoutesForPod(pod.Namespace, portInfo.ips)
 	oc.deletePodExternalGW(pod)
+	if err := oc.clearPodBandwidth(portInfo.logicalSwitch, logicalPort); err != nil {
+		klog.Errorf(err.Error())
+	}
 	oc.logicalPortCache.remove(logicalPort)
 }
 
@@ -534,8 +541,147 @@ func (oc *Controller) addLogicalPort(pod *kapi.Pod) (err error) {
 			portName, err)
 	}
 
+	err = oc.handlePodBandwidth(pod)
+
+	if err != nil {
+		oc.recordPodEvent(fmt.Errorf("error while handle pod bandwidth on port: %s error: %v",
+			portName, err), pod)
+		if err = oc.kube.SetAnnotationsOnPod(pod.Namespace, pod.Name, map[string]string{util.OvnPodQosAnnotation: "{}"}); err != nil {
+			return fmt.Errorf("failed to set qos annotation on pod %s: %v", pod.Name, err)
+		}
+	}
+
 	// observe the pod creation latency metric.
 	metrics.RecordPodCreated(pod)
+	return nil
+}
+
+func (oc *Controller) clearPodBandwidth(logicalSwitch string, portName string) error {
+
+	qosrules, err := oc.ovnNBClient.QoSList(logicalSwitch)
+	if err != nil {
+		return err
+	}
+
+	var cmds []*goovn.OvnCommand
+
+	for _, rule := range qosrules {
+		if rule.Priority == BandWidthPriority &&
+			(rule.Match == fmt.Sprintf("outport == \"%s\"", portName) ||
+				rule.Match == fmt.Sprintf("inport == \"%s\"", portName)) {
+			cmd, err := oc.ovnNBClient.QoSDel(logicalSwitch, rule.Direction, rule.Priority, rule.Match)
+
+			if err != nil {
+				continue
+			}
+
+			cmds = append(cmds, cmd)
+
+		}
+	}
+
+	err = oc.ovnNBClient.Execute(cmds...)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (oc *Controller) handlePodBandwidth(pod *kapi.Pod) error {
+
+	// If a node does node have an assigned hostsubnet don't wait for the logical switch to appear
+	if oc.lsManager.IsNonHostSubnetSwitch(pod.Spec.NodeName) {
+		return nil
+	}
+
+	if _, ok := pod.Annotations[util.OvnPodQosAnnotation]; !ok {
+		return nil
+	}
+
+	logicalSwitch := pod.Spec.NodeName
+	portName := podLogicalPortName(pod)
+
+	err := oc.clearPodBandwidth(logicalSwitch, portName)
+
+	if err != nil {
+		return err
+	}
+
+	qosAnnotation, err := util.GetPodQosAnnotations(pod.Annotations)
+	if err != nil {
+		return err
+	}
+
+	var cmds []*goovn.OvnCommand
+
+	if qosAnnotation.IngressRate > -1 || qosAnnotation.IngressBurst > -1 || qosAnnotation.IngressDscp > -1 {
+
+		var actionMap map[string]int = nil
+		var bandWidthMap map[string]int = nil
+
+		if qosAnnotation.IngressDscp > 1 {
+			actionMap = map[string]int{"dscp": qosAnnotation.IngressDscp}
+		}
+
+		if qosAnnotation.IngressRate > -1 || qosAnnotation.IngressBurst > -1 {
+			bandWidthMap = map[string]int{}
+
+			if qosAnnotation.IngressRate > -1 {
+				bandWidthMap["rate"] = qosAnnotation.IngressRate
+			}
+
+			if qosAnnotation.IngressBurst > -1 {
+				bandWidthMap["burst"] = qosAnnotation.IngressBurst
+			}
+		}
+
+		cmd, err := oc.ovnNBClient.QoSAdd(logicalSwitch, "to-lport", BandWidthPriority,
+			fmt.Sprintf("outport == \"%s\"", portName), actionMap, bandWidthMap, nil)
+
+		if err != nil {
+			return err
+		}
+
+		cmds = append(cmds, cmd)
+	}
+
+	if qosAnnotation.EgressRate > -1 || qosAnnotation.EgressBurst > -1 || qosAnnotation.EgressDscp > -1 {
+
+		var actionMap map[string]int = nil
+		var bandWidthMap map[string]int = nil
+
+		if qosAnnotation.EgressDscp > 1 {
+			actionMap = map[string]int{"dscp": qosAnnotation.EgressDscp}
+		}
+
+		if qosAnnotation.EgressRate > -1 || qosAnnotation.EgressBurst > -1 {
+			bandWidthMap = map[string]int{}
+
+			if qosAnnotation.EgressRate > -1 {
+				bandWidthMap["rate"] = qosAnnotation.EgressRate
+			}
+
+			if qosAnnotation.EgressBurst > -1 {
+				bandWidthMap["burst"] = qosAnnotation.EgressBurst
+			}
+		}
+
+		cmd, err := oc.ovnNBClient.QoSAdd(logicalSwitch, "from-lport", BandWidthPriority,
+			fmt.Sprintf("inport == \"%s\"", portName), actionMap, bandWidthMap, nil)
+
+		if err != nil {
+			return err
+		}
+
+		cmds = append(cmds, cmd)
+	}
+
+	err = oc.ovnNBClient.Execute(cmds...)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

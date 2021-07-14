@@ -467,6 +467,15 @@ func (oc *Controller) ensurePod(oldPod, pod *kapi.Pod, addPort bool) bool {
 			// care of updating the exgw updates
 			oc.deletePodExternalGW(oldPod)
 		}
+
+		if util.PodWantsNetwork(pod) && oldPod != nil && util.QosAnnotionsChanged(oldPod, pod) {
+			if err := oc.handlePodBandwidth(pod); err != nil {
+				klog.Errorf(err.Error())
+				oc.recordPodEvent(err, pod)
+				return false
+			}
+		}
+
 		if err := oc.addPodExternalGW(pod); err != nil {
 			klog.Errorf(err.Error())
 			oc.recordPodEvent(err, pod)
