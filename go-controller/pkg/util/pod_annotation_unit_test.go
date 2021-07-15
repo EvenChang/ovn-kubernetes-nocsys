@@ -286,3 +286,52 @@ func TestGetAllPodIPs(t *testing.T) {
 		})
 	}
 }
+
+func TestParseQosAnnotation(t *testing.T) {
+	tests := []struct {
+		desc           string
+		qosAnnStr      string
+		errAssert      bool
+		expectedOutput QosAnnotation
+	}{
+		{
+			desc:           "Qos normal annotation parse",
+			qosAnnStr:      "{\"ingress\":{\"rate\": \"100M\", \"burst\": \"10M\", \"dscp\": \"12\"}, \"egress\":{\"rate\": \"88M\"}}",
+			errAssert:      false,
+			expectedOutput: QosAnnotation{100000, 10000, 12, 88000, -1, -1},
+		},
+		{
+			desc:      "Qos incorrect annotation parse",
+			qosAnnStr: "{\"ingress\":{\"rate\": \"100M\"}",
+			errAssert: true,
+		},
+		{
+			desc:      "Qos invalid annotation set dscp out of range",
+			qosAnnStr: "{\"ingress\":{\"rate\": \"100M\", \"burst\": \"10M\", \"dscp\": \"88\"}, \"egress\":{\"rate\": \"88M\"}}",
+			errAssert: true,
+		},
+		{
+			desc:      "Qos invalid annotation set burst without rate",
+			qosAnnStr: "{\"ingress\":{\"burst\": \"10M\", \"dscp\": \"12\"}, \"egress\":{\"rate\": \"88M\"}}",
+			errAssert: true,
+		},
+		{
+			desc:      "Qos invalid annotation set rate out of range",
+			qosAnnStr: "{\"ingress\":{\"rate\": \"5P\", \"dscp\": \"12\"}, \"egress\":{\"rate\": \"88M\"}}",
+			errAssert: true,
+		},
+	}
+	for i, tc := range tests {
+		t.Run(fmt.Sprintf("%d:%s", i, tc.desc), func(t *testing.T) {
+			podAnnotationMap := map[string]string{OvnPodQosAnnotation: tc.qosAnnStr}
+			qosAnnotation, err := GetPodQosAnnotations(podAnnotationMap)
+			if tc.errAssert {
+				assert.Error(t, err)
+			} else {
+				assert.Equal(t, tc.expectedOutput, *qosAnnotation)
+			}
+
+		})
+	}
+
+}
