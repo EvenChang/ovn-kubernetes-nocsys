@@ -229,14 +229,14 @@ func newSharedGatewayOpenFlowManager(patchPort, macAddress, gwBridge, gwIntf str
 	maxPktLength := getMaxFrameLength()
 
 	// Get ofport of patchPort
-	ofportPatch, stderr, err := util.RunOVSVsctl("get", "Interface", patchPort, "ofport")
+	ofportPatch, stderr, err := util.GetOVSOfPort("get", "Interface", patchPort, "ofport")
 	if err != nil {
 		return nil, fmt.Errorf("failed while waiting on patch port %q to be created by ovn-controller and "+
 			"while getting ofport. stderr: %q, error: %v", patchPort, stderr, err)
 	}
 
 	// Get ofport of physical interface
-	ofportPhys, stderr, err := util.RunOVSVsctl("get", "interface", gwIntf, "ofport")
+	ofportPhys, stderr, err := util.GetOVSOfPort("get", "interface", gwIntf, "ofport")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ofport of %s, stderr: %q, error: %v",
 			gwIntf, stderr, err)
@@ -260,9 +260,14 @@ func newSharedGatewayOpenFlowManager(patchPort, macAddress, gwBridge, gwIntf str
 				defaultOpenFlowCookie, ofportPatch, config.Default.ConntrackZone, ofportPhys))
 
 		// table0, Geneve packets coming from external. Skip conntrack and go directly to host
+		// if dest mac is the shared mac send directly to host.
 		dftFlows = append(dftFlows,
-			fmt.Sprintf("cookie=%s, priority=55, in_port=%s, udp, udp_dst=%d"+
-				"actions=LOCAL", defaultOpenFlowCookie, ofportPhys, config.Default.EncapPort))
+			fmt.Sprintf("cookie=%s, priority=60, in_port=%s, dl_dst=%s, udp, udp_dst=%d, "+
+				"actions=output:LOCAL", defaultOpenFlowCookie, ofportPhys, macAddress, config.Default.EncapPort))
+		// perform NORMAL action otherwise.
+		dftFlows = append(dftFlows,
+			fmt.Sprintf("cookie=%s, priority=55, in_port=%s, udp, udp_dst=%d, "+
+				"actions=NORMAL", defaultOpenFlowCookie, ofportPhys, config.Default.EncapPort))
 
 		// table 0, packets coming from external. Send it through conntrack and
 		// resubmit to table 1 to know the state of the connection.
@@ -296,9 +301,14 @@ func newSharedGatewayOpenFlowManager(patchPort, macAddress, gwBridge, gwIntf str
 				defaultOpenFlowCookie, ofportPatch, config.Default.ConntrackZone, ofportPhys))
 
 		// table0, Geneve packets coming from external. Skip conntrack and go directly to host
+		// if dest mac is the shared mac send directly to host.
 		dftFlows = append(dftFlows,
-			fmt.Sprintf("cookie=%s, priority=55, in_port=%s, udp6, udp_dst=%d"+
-				"actions=LOCAL", defaultOpenFlowCookie, ofportPhys, config.Default.EncapPort))
+			fmt.Sprintf("cookie=%s, priority=60, in_port=%s, dl_dst=%s, udp6, udp_dst=%d, "+
+				"actions=output:LOCAL", defaultOpenFlowCookie, ofportPhys, macAddress, config.Default.EncapPort))
+		// perform NORMAL action otherwise.
+		dftFlows = append(dftFlows,
+			fmt.Sprintf("cookie=%s, priority=55, in_port=%s, udp6, udp_dst=%d, "+
+				"actions=NORMAL", defaultOpenFlowCookie, ofportPhys, config.Default.EncapPort))
 
 		// table 0, packets coming from external. Send it through conntrack and
 		// resubmit to table 1 to know the state of the connection.
@@ -579,7 +589,7 @@ func newSharedGateway(nodeName string, subnets []*net.IPNet, gwNextHops []net.IP
 
 func newNodePortWatcher(patchPort, gwBridge, gwIntf string, ofm *openflowManager) (*nodePortWatcher, error) {
 	// Get ofport of patchPort
-	ofportPatch, stderr, err := util.RunOVSVsctl("--if-exists", "get",
+	ofportPatch, stderr, err := util.GetOVSOfPort("--if-exists", "get",
 		"interface", patchPort, "ofport")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ofport of %s, stderr: %q, error: %v",
@@ -587,7 +597,7 @@ func newNodePortWatcher(patchPort, gwBridge, gwIntf string, ofm *openflowManager
 	}
 
 	// Get ofport of physical interface
-	ofportPhys, stderr, err := util.RunOVSVsctl("--if-exists", "get",
+	ofportPhys, stderr, err := util.GetOVSOfPort("--if-exists", "get",
 		"interface", gwIntf, "ofport")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ofport of %s, stderr: %q, error: %v",

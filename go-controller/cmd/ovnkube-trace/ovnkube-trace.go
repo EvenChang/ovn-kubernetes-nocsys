@@ -298,15 +298,25 @@ func getPodInfo(coreclient *corev1client.CoreV1Client, restconfig *rest.Config, 
 			}
 			klog.V(5).Infof("linkIndex is %d", linkIndex)
 		} else {
+			var linkOutput string
 			awkString := " | awk '{print $2}'"
 			iplinkCmd := "ip -o link show dev " + ethName + awkString
 
 			klog.V(5).Infof("The ip -o command is %s", iplinkCmd)
 			linkOutput, linkError, err := execInPod(coreclient, restconfig, namespace, podName, podInfo.ContainerName, iplinkCmd, "")
-			if err != nil {
+			if err != nil || linkError != "" {
 				klog.V(1).Infof("The ip -o command error %v stdOut: %s\n stdErr: %s", err, linkOutput, linkError)
-				// Give up, pod image doesn't have iproute installed
-				return nil, err
+				// Pod image doesn't have iproute installed, try using sysfs
+				ifindexCatCmd := "cat /sys/class/net/" + ethName + "/ifindex"
+				klog.V(5).Infof("The cat command is %s", ifindexCatCmd)
+				catError := ""
+				linkOutput, catError, err = execInPod(coreclient, restconfig, namespace, podName, podInfo.ContainerName, ifindexCatCmd, "")
+				klog.V(1).Info(linkOutput)
+				if err != nil || catError != "" || linkOutput == "" {
+					// Okay, we're really done, time to give up
+					klog.V(1).Infof("The cat /sys/class/net... command error %v stdOut: %s\n stdErr: %s", err, linkOutput, catError)
+					return nil, err
+				}
 			}
 
 			klog.V(5).Infof("AWK string is %s", awkString)
@@ -935,23 +945,35 @@ func main() {
 		os.Exit(-1)
 	}
 
-	// ovn-detrace TODO - workaround until image supports ovs and pyOpenSSL
-
-	installCmd := "pip3 install ovs pyOpenSSL"
-	dtraceInstallOut, dtraceInstallErr, err := execInPod(coreclient, restconfig, ovnNamespace, srcPodInfo.OvnKubeContainerPodName, "ovnkube-node", installCmd, "")
-	if err != nil {
-		klog.V(0).Infof("ovn-detrace error %v stdOut: %s\n stdErr: %s", err, dtraceInstallOut, dtraceInstallErr)
-		os.Exit(-1)
+	// Install dependencies with pip3 in case they are missing (for older images)
+	podList := []string{
+		srcPodInfo.OvnKubeContainerPodName,
+		dstPodInfo.OvnKubeContainerPodName,
 	}
-	fmt.Printf("install ovn-detrace Output: %s\n", dtraceInstallOut)
-
-	installCmd2 := "pip3 install ovs pyOpenSSL"
-	dtraceInstallOut2, dtraceInstallErr2, err := execInPod(coreclient, restconfig, ovnNamespace, dstPodInfo.OvnKubeContainerPodName, "ovnkube-node", installCmd2, "")
-	if err != nil {
-		klog.V(0).Infof("ovn-detrace error %v stdOut: %s\n stdErr: %s", err, dtraceInstallOut2, dtraceInstallErr2)
-		os.Exit(-1)
+	dependencies := map[string]string{
+		"ovs":       "if type -p ovn-detrace >/dev/null 2>&1; then echo 'true' ; fi",
+		"pyOpenSSL": "if rpm -qa | egrep -q python3-pyOpenSSL; then echo 'true'; fi",
 	}
-	fmt.Printf("install ovn-detrace Output: %s\n", dtraceInstallOut2)
+	for _, podName := range podList {
+		for dependency, dependencyCmd := range dependencies {
+			depVerifyOut, depVerifyErr, err := execInPod(coreclient, restconfig, ovnNamespace, podName, "ovnkube-node", dependencyCmd, "")
+			if err != nil {
+				klog.V(0).Infof("Dependency verification error in pod %s, container %s. Error '%v', stdOut: '%s'\n stdErr: %s", podName, "ovnkube-node", err, depVerifyOut, depVerifyErr)
+				os.Exit(-1)
+			}
+			trueFalse := strings.TrimSuffix(depVerifyOut, "\n")
+			klog.V(10).Infof("Dependency check '%s' in pod '%s', container '%s' yielded '%s'", dependencyCmd, podName, "ovnkube-node", trueFalse)
+			if trueFalse != "true" {
+				installCmd := "pip3 install " + dependency
+				depInstallOut, depInstallErr, err := execInPod(coreclient, restconfig, ovnNamespace, podName, "ovnkube-node", installCmd, "")
+				if err != nil {
+					klog.V(0).Infof("ovn-detrace error in pod %s, container %s. Error '%v', stdOut: '%s'\n stdErr: %s", podName, "ovnkube-node", err, depInstallOut, depInstallErr)
+					os.Exit(-1)
+				}
+				fmt.Printf("install ovn-detrace Output: %s\n", depInstallOut)
+			}
+		}
+	}
 
 	// ovn-detrace src - dst
 	fromSrc = "--ovnnb=" + nbUri + " "

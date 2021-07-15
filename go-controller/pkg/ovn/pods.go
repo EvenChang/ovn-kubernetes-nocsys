@@ -87,6 +87,7 @@ func (oc *Controller) syncPods(pods []interface{}) {
 }
 
 func (oc *Controller) deleteLogicalPort(pod *kapi.Pod) {
+	oc.deletePodExternalGW(pod)
 	if pod.Spec.HostNetwork {
 		return
 	}
