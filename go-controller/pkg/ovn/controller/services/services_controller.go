@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	libovsdbclient "github.com/ovn-org/libovsdb/client"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/metrics"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/loadbalancer"
@@ -46,6 +47,7 @@ const (
 
 // NewController returns a new *Controller.
 func NewController(client clientset.Interface,
+	nbClient libovsdbclient.Client,
 	serviceInformer coreinformers.ServiceInformer,
 	endpointSliceInformer discoveryinformers.EndpointSliceInformer,
 	clusterPortGroupUUID string,
@@ -60,6 +62,7 @@ func NewController(client clientset.Interface,
 
 	c := &Controller{
 		client:           client,
+		nbClient:         nbClient,
 		serviceTracker:   st,
 		queue:            workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), controllerName),
 		workerLoopPeriod: time.Second,
@@ -97,7 +100,11 @@ func NewController(client clientset.Interface,
 
 // Controller manages selector-based service endpoints.
 type Controller struct {
-	client           clientset.Interface
+	client clientset.Interface
+
+	// libovsdb northbound client interface
+	nbClient libovsdbclient.Client
+
 	eventBroadcaster record.EventBroadcaster
 	eventRecorder    record.EventRecorder
 
@@ -197,7 +204,7 @@ func (c *Controller) handleErr(err error, key interface{}) {
 	if keyErr != nil {
 		klog.ErrorS(err, "Failed to split meta namespace cache key", "key", key)
 	}
-	metrics.MetricRequeueServiceCount.WithLabelValues(key.(string)).Inc()
+	metrics.MetricRequeueServiceCount.Inc()
 
 	if c.queue.NumRequeues(key) < maxRetries {
 		klog.V(2).InfoS("Error syncing service, retrying", "service", klog.KRef(ns, name), "err", err)
@@ -217,11 +224,11 @@ func (c *Controller) syncServices(key string) error {
 		return err
 	}
 	klog.Infof("Processing sync for service %s on namespace %s ", name, namespace)
-	metrics.MetricSyncServiceCount.WithLabelValues(key).Inc()
+	metrics.MetricSyncServiceCount.Inc()
 
 	defer func() {
 		klog.V(4).Infof("Finished syncing service %s on namespace %s : %v", name, namespace, time.Since(startTime))
-		metrics.MetricSyncServiceLatency.WithLabelValues(key).Observe(time.Since(startTime).Seconds())
+		metrics.MetricSyncServiceLatency.Observe(time.Since(startTime).Seconds())
 	}()
 
 	// Get current Service from the cache
@@ -243,8 +250,12 @@ func (c *Controller) syncServices(key string) error {
 	if err != nil || !util.ServiceTypeHasClusterIP(service) || !util.IsClusterIPSet(service) {
 		err = deleteVIPsFromAllOVNBalancers(vipsTracked, name, namespace)
 		if err != nil {
-			c.eventRecorder.Eventf(service, v1.EventTypeWarning, "FailedToDeleteOVNLoadBalancer",
-				"Error trying to delete the OVN LoadBalancer for Service %s/%s: %v", name, namespace, err)
+			// If the service wasn't found, don't panic sending an
+			// an event after cleaning it up
+			if service != nil {
+				c.eventRecorder.Eventf(service, v1.EventTypeWarning, "FailedToDeleteOVNLoadBalancer",
+					"Error trying to delete the OVN LoadBalancer for Service %s/%s: %v", name, namespace, err)
+			}
 			return err
 		}
 		// Delete the Service form the Service Tracker
@@ -353,11 +364,17 @@ func (c *Controller) syncServices(key string) error {
 					return err
 				}
 				if c.serviceTracker.getLoadBalancer(name, namespace, vip) != currentLB {
+					txn := util.NewNBTxn()
 					// Need to ensure that if vip exists on cluster LB we remove it
 					// This can happen if endpoints originally had cluster only ips but now have host ips
-					if err := loadbalancer.DeleteLoadBalancerVIP(clusterLB, vip); err != nil {
-						klog.Errorf("Error deleting VIP %s on OVN LoadBalancer %s", vip, clusterLB)
+					if err := loadbalancer.DeleteLoadBalancerVIP(txn, clusterLB, vip); err != nil {
 						return err
+					}
+					if stdout, stderr, err := txn.Commit(); err != nil {
+						klog.Errorf("Error deleting VIP %s on OVN LoadBalancer %s", vip, clusterLB)
+						return fmt.Errorf("error deleting load balancer vip %v for %v"+
+							"stdout: %q, stderr: %q, error: %v",
+							vip, clusterLB, stdout, stderr, err)
 					}
 				}
 			} else {
