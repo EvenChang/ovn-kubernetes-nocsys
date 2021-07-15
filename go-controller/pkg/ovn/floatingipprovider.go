@@ -95,6 +95,10 @@ func (fipc *floatingIpProviderController) deleteFloatingIPProvider(obj interface
 func (fipc *floatingIpProviderController) addFloatingIPClaim(obj interface{}) {
 	fic := obj.(*floatingipclaimapi.FloatingIPClaim)
 	klog.V(5).InfoS("Adding floating ip claim", "floatingipclaim", klog.KRef("", fic.Name))
+	defer func() {
+		fipc.ficc.queue.AddRateLimited(fic.Name)
+		fipc.queue.AddRateLimited(fic.Spec.Provider)
+	}()
 	{
 		fipc.ficc.ficMutex.Lock()
 		defer fipc.ficc.ficMutex.Unlock()
@@ -141,9 +145,6 @@ func (fipc *floatingIpProviderController) addFloatingIPClaim(obj interface{}) {
 	if !fipc.ficc.addFloatingIPClaim(obj) {
 		return
 	}
-
-	fipc.ficc.queue.AddRateLimited(fic.Name)
-	fipc.queue.AddRateLimited(fic.Spec.Provider)
 }
 
 func (fipc *floatingIpProviderController) updateFloatingIPClaim(old, cur interface{}) {

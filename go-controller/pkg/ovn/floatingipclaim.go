@@ -218,6 +218,15 @@ func (ficc *floatingIPClaimController) sync(key string) error {
 		}
 		return nil
 	}
+	fic := ficObj.DeepCopy()
+	fic.Status.AssignedIPs = []string{}
+	fic.Status.Phase = floatingipclaimapi.FloatingIPClaimReady
+	defer func() {
+		if err = ficc.client.UpdateFloatingIPClaim(fic); err != nil {
+			ficc.eventRecorder.Eventf(ficObj, kapi.EventTypeWarning, "FailedToUpdateFloatingIPClaim", "Failed to update status for floating ip claim: %v", err)
+			ficc.queue.AddRateLimited(fic.Name)
+		}
+	}()
 
 	var allocator floatingipallocator.Interface
 	{
@@ -225,6 +234,8 @@ func (ficc *floatingIPClaimController) sync(key string) error {
 		defer ficc.ficMutex.RUnlock()
 		allocator = ficc.suballocators[ficObj.Name]
 		if allocator == nil {
+			fic.Status.Phase = floatingipclaimapi.FloatingIPClaimNotReady
+
 			// floating ip claim not ready
 			fiObjs, err := ficc.client.GetFloatingIPs()
 			if err != nil {
@@ -270,15 +281,6 @@ func (ficc *floatingIPClaimController) sync(key string) error {
 		}
 	}
 
-	fic := ficObj.DeepCopy()
-	fic.Status.AssignedIPs = []string{}
-	fic.Status.Phase = floatingipclaimapi.FloatingIPClaimReady
-	defer func() {
-		if err = ficc.client.UpdateFloatingIPClaim(fic); err != nil {
-			ficc.eventRecorder.Eventf(ficObj, kapi.EventTypeWarning, "FailedToUpdateFloatingIPClaim", "Failed to update status for floating ip claim: %v", err)
-			ficc.queue.AddRateLimited(fic.Name)
-		}
-	}()
 	// Clean up floating ip
 	if allocator.Used() == 0 {
 		// The spec of floating ip claim changes and the ip allocator recreates the scene
@@ -393,7 +395,7 @@ func (ficc *floatingIPClaimController) sync(key string) error {
 				NodeName:    node,
 				FloatingIP:  ip.To4().String(),
 				HostNetwork: pod.Spec.HostNetwork,
-				Phase:       floatingipapi.FloatingIPSucceeded,
+				Phase:       floatingipapi.FloatingIPCreating,
 			},
 		}
 		for _, PodIP := range pod.Status.PodIPs {
