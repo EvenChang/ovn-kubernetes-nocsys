@@ -335,12 +335,6 @@ func (ficc *floatingIPClaimController) sync(key string) error {
 					return err
 				}
 			}
-			if fiOnPod.Status.FloatingIP != "" {
-				allocator.Release(net.ParseIP(fiOnPod.Status.FloatingIP))
-			}
-			if fiOnPod.Status.NodeName != "" {
-				ficc.Release(fiOnPod.Status.NodeName)
-			}
 		}
 	}
 
