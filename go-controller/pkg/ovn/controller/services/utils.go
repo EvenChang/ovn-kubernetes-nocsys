@@ -88,12 +88,20 @@ func deleteVIPsFromNonIdlingOVNBalancers(vips sets.String, name, namespace strin
 		}
 	}
 
+	txn := util.NewNBTxn()
 	for proto := range foundProtocols {
-		if err := loadbalancer.DeleteLoadBalancerVIPs(lbsPerProtocol[proto].List(), vipsPerProtocol[proto].List()); err != nil {
-			klog.Errorf("Error deleting VIP %v on OVN LoadBalancer %v", vipsPerProtocol[proto].List(), lbsPerProtocol[proto].List())
+		if err := loadbalancer.DeleteLoadBalancerVIPs(txn, lbsPerProtocol[proto].List(), vipsPerProtocol[proto].List()); err != nil {
+			klog.Errorf("Error deleting VIP %v on OVN LoadBalancer %v: %v", vipsPerProtocol[proto].List(), lbsPerProtocol[proto].List(), err)
 			return err
 		}
 	}
+	if stdout, stderr, err := txn.Commit(); err != nil {
+		klog.Errorf("Error deleting VIPs %v on OVN LoadBalancers %v", vips.List(), lbsPerProtocol)
+		return fmt.Errorf("error deleting load balancer %v VIPs %v"+
+			"stdout: %q, stderr: %q, error: %v",
+			lbsPerProtocol, vips.List(), stdout, stderr, err)
+	}
+
 	return nil
 }
 
@@ -130,13 +138,22 @@ func deleteVIPsFromIdlingBalancer(vipProtocols sets.String, name, namespace stri
 		}
 		lbsPerProtocol[proto] = sets.NewString(lbID)
 	}
+
+	txn := util.NewNBTxn()
 	for proto := range foundProtocols {
-		if err := loadbalancer.DeleteLoadBalancerVIPs(lbsPerProtocol[proto].List(), vipsPerProtocol[proto].List()); err != nil {
+		if err := loadbalancer.DeleteLoadBalancerVIPs(txn, lbsPerProtocol[proto].List(), vipsPerProtocol[proto].List()); err != nil {
 			klog.Errorf("Error deleting VIPs %v on idling OVN LoadBalancer %s %v",
 				vipsPerProtocol[proto].List(), lbsPerProtocol[proto].List(), err)
 			return err
 		}
 	}
+	if stdout, stderr, err := txn.Commit(); err != nil {
+		klog.Errorf("Error deleting VIPs %v on idling OVN LoadBalancers %v", vipProtocols.List(), lbsPerProtocol)
+		return fmt.Errorf("error deleting idling load balancer %v VIPs %v"+
+			"stdout: %q, stderr: %q, error: %v",
+			lbsPerProtocol, vipProtocols.List(), stdout, stderr, err)
+	}
+
 	return nil
 }
 
@@ -300,9 +317,16 @@ func deleteNodeVIPs(svcIPs []string, protocol v1.Protocol, sourcePort int32) err
 	}
 
 	klog.V(5).Infof("Removing gateway VIPs: %v from load balancers: %v", vips, loadBalancers)
-	if err := loadbalancer.DeleteLoadBalancerVIPs(loadBalancers, vips); err != nil {
+	txn := util.NewNBTxn()
+	if err := loadbalancer.DeleteLoadBalancerVIPs(txn, loadBalancers, vips); err != nil {
 		return err
 	}
+	if stdout, stderr, err := txn.Commit(); err != nil {
+		return fmt.Errorf("error deleting node load balancer %v VIPs %v"+
+			"stdout: %q, stderr: %q, error: %v",
+			loadBalancers, vips, stdout, stderr, err)
+	}
+
 	return nil
 }
 
@@ -338,8 +362,8 @@ func getNodeIPs(isIPv6 bool) ([]string, error) {
 		}
 		physicalIPs, err = util.MatchAllIPStringFamily(isIPv6, physicalIPs)
 		if err != nil {
-			klog.Errorf("Failed to find node ips for gateway: %s that match IP family, error: %v",
-				gatewayRouter, err)
+			klog.Errorf("Failed to find node ips for gateway: %s that match IP family, IPv6: %t, error: %v",
+				gatewayRouter, isIPv6, err)
 			continue
 		}
 		nodeIPs = append(nodeIPs, physicalIPs...)
@@ -350,6 +374,7 @@ func getNodeIPs(isIPv6 bool) ([]string, error) {
 // collectServiceVIPs collects all the vips associated to a given service
 // and returns them as a set.
 func collectServiceVIPs(service *v1.Service) sets.String {
+	isV6Families := getIPFamiliesEnabled()
 	res := sets.NewString()
 	for _, ip := range util.GetClusterIPs(service) {
 		for _, svcPort := range service.Spec.Ports {
@@ -361,10 +386,11 @@ func collectServiceVIPs(service *v1.Service) sets.String {
 	for _, svcPort := range service.Spec.Ports {
 		// Node Port
 		if svcPort.NodePort != 0 {
-			for _, isIPv6 := range []bool{false, true} {
+			for _, isIPv6 := range isV6Families {
 				nodeIPs, err := getNodeIPs(isIPv6)
 				if err != nil {
 					klog.Error(err)
+					continue
 				}
 				for _, ip := range nodeIPs {
 					vip := util.JoinHostPortInt32(ip, svcPort.NodePort)
@@ -406,4 +432,17 @@ func svcNeedsIdling(annotations map[string]string) bool {
 		}
 	}
 	return false
+}
+
+// get IPFamiliesEnabled returns a slice representing which ip families
+// are enabled, with false representing ipv4, and true for ipv6
+func getIPFamiliesEnabled() []bool {
+	isV6Families := make([]bool, 0, 2)
+	if config.IPv4Mode {
+		isV6Families = append(isV6Families, false)
+	}
+	if config.IPv6Mode {
+		isV6Families = append(isV6Families, true)
+	}
+	return isV6Families
 }

@@ -2,6 +2,7 @@ package ovn
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -12,6 +13,7 @@ import (
 
 	goovn "github.com/ebay/go-ovn"
 	nettypes "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
+	libovsdbclient "github.com/ovn-org/libovsdb/client"
 	hocontroller "github.com/ovn-org/ovn-kubernetes/go-controller/hybrid-overlay/pkg/controller"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	egressfirewall "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressfirewall/v1"
@@ -32,6 +34,7 @@ import (
 	kapi "k8s.io/api/core/v1"
 	kapisnetworking "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
@@ -77,9 +80,6 @@ type namespaceInfo struct {
 	// networkPolicy's mutex (and not necessarily the namespaceInfo's) to work with
 	// the policy itself.
 	networkPolicies map[string]*networkPolicy
-
-	// defines the namespaces egressFirewall
-	egressFirewall *egressFirewall
 
 	// routingExternalGWs is a slice of net.IP containing the values parsed from
 	// annotation k8s.ovn.org/routing-external-gws
@@ -145,6 +145,9 @@ type Controller struct {
 	namespaces      map[string]*namespaceInfo
 	namespacesMutex sync.Mutex
 
+	// egressFirewalls is a map of namespaces and the egressFirewall attached to it
+	egressFirewalls sync.Map
+
 	// An address set factory that creates address sets
 	addressSetFactory addressset.AddressSetFactory
 
@@ -199,6 +202,12 @@ type Controller struct {
 	// go-ovn southbound client interface
 	ovnSBClient goovn.Client
 
+	// libovsdb northbound client interface
+	nbClient libovsdbclient.Client
+
+	// libovsdb southbound client interface
+	sbClient libovsdbclient.Client
+
 	// v4HostSubnetsUsed keeps track of number of v4 subnets currently assigned to nodes
 	v4HostSubnetsUsed float64
 
@@ -242,8 +251,9 @@ func GetIPFullMask(ip string) string {
 
 // NewOvnController creates a new OVN controller for creating logical network
 // infrastructure and policy
-func NewOvnController(ovnClient *util.OVNClientset, wf *factory.WatchFactory,
-	stopChan <-chan struct{}, addressSetFactory addressset.AddressSetFactory, ovnNBClient goovn.Client, ovnSBClient goovn.Client, recorder record.EventRecorder) *Controller {
+func NewOvnController(ovnClient *util.OVNClientset, wf *factory.WatchFactory, stopChan <-chan struct{}, addressSetFactory addressset.AddressSetFactory,
+	ovnNBClient goovn.Client, ovnSBClient goovn.Client, libovsdbOvnNBClient libovsdbclient.Client, libovsdbOvnSBClient libovsdbclient.Client,
+	recorder record.EventRecorder) *Controller {
 	if addressSetFactory == nil {
 		addressSetFactory = addressset.NewOvnAddressSetFactory()
 	}
@@ -313,6 +323,7 @@ func NewOvnController(ovnClient *util.OVNClientset, wf *factory.WatchFactory,
 			podHandlerCache:       make(map[string]factory.Handler),
 			allocatorMutex:        &sync.Mutex{},
 			allocator:             make(map[string]*egressNode),
+			nbClient:              libovsdbOvnNBClient,
 		},
 		fIPC:                     newFIPController(ovnClient),
 		fIPCC:                    ficc,
@@ -326,6 +337,8 @@ func NewOvnController(ovnClient *util.OVNClientset, wf *factory.WatchFactory,
 		recorder:                 recorder,
 		ovnNBClient:              ovnNBClient,
 		ovnSBClient:              ovnSBClient,
+		nbClient:                 libovsdbOvnNBClient,
+		sbClient:                 libovsdbOvnSBClient,
 		clusterLBsUUIDs:          make([]string, 0),
 	}
 }
@@ -352,6 +365,7 @@ func (oc *Controller) Run(wg *sync.WaitGroup, nodeName string) error {
 
 	oc.WatchPods()
 
+	// WatchNetworkPolicy depends on WatchPods and WatchNamespaces
 	oc.WatchNetworkPolicy()
 
 	if config.OVNKubernetesFeature.EnableEgressIP {
@@ -385,6 +399,7 @@ func (oc *Controller) Run(wg *sync.WaitGroup, nodeName string) error {
 		unidlingController := unidling.NewController(
 			oc.recorder,
 			oc.watchFactory.ServiceInformer(),
+			oc.sbClient,
 		)
 		wg.Add(1)
 		go func() {
@@ -399,6 +414,13 @@ func (oc *Controller) Run(wg *sync.WaitGroup, nodeName string) error {
 			defer wg.Done()
 			oc.hoMaster.Run(oc.stopChan)
 		}()
+	}
+
+	// Final step to cleanup after resource handlers have synced
+	err := oc.ovnTopologyCleanup()
+	if err != nil {
+		klog.Errorf("Failed to cleanup OVN topology to version %d: %v", ovntypes.OvnCurrentTopologyVersion, err)
+		return err
 	}
 
 	// Master is fully running and resource handlers have synced, update Topology version in OVN
@@ -421,6 +443,19 @@ func (oc *Controller) Run(wg *sync.WaitGroup, nodeName string) error {
 	}
 
 	return nil
+}
+
+func (oc *Controller) ovnTopologyCleanup() error {
+	ver, err := util.DetermineOVNTopoVersionFromOVN()
+	if err != nil {
+		return err
+	}
+
+	// Cleanup address sets in non dual stack formats in all versions known to possibly exist.
+	if ver <= ovntypes.OvnPortBindingTopoVersion {
+		err = addressset.NonDualStackAddressSetCleanup()
+	}
+	return err
 }
 
 // syncPeriodic adds a goroutine that periodically does some work
@@ -512,6 +547,13 @@ func (oc *Controller) ensurePod(oldPod, pod *kapi.Pod, addPort bool) bool {
 		return false
 	}
 
+	if oldPod != nil && (exGatewayAnnotationsChanged(oldPod, pod) || networkStatusAnnotationsChanged(oldPod, pod)) {
+		// No matter if a pod is ovn networked, or host networked, we still need to check for exgw
+		// annotations. If the pod is ovn networked and is in update reschedule, addLogicalPort will take
+		// care of updating the exgw updates
+		oc.deletePodExternalGW(oldPod)
+	}
+
 	if util.PodWantsNetwork(pod) && addPort {
 		if err := oc.addLogicalPort(pod); err != nil {
 			klog.Errorf(err.Error())
@@ -525,6 +567,15 @@ func (oc *Controller) ensurePod(oldPod, pod *kapi.Pod, addPort bool) bool {
 			// care of updating the exgw updates
 			oc.deletePodExternalGW(oldPod)
 		}
+
+		if util.PodWantsNetwork(pod) && oldPod != nil && util.QosAnnotionsChanged(oldPod, pod) {
+			if err := oc.handlePodBandwidth(pod); err != nil {
+				klog.Errorf(err.Error())
+				oc.recordPodEvent(err, pod)
+				return false
+			}
+		}
+
 		if err := oc.addPodExternalGW(pod); err != nil {
 			klog.Errorf(err.Error())
 			oc.recordPodEvent(err, pod)
@@ -612,7 +663,7 @@ func (oc *Controller) WatchEgressFirewall() *factory.Handler {
 			} else {
 				_, stderr, err := txn.Commit()
 				if err != nil {
-					klog.Errorf("Failed to commit db changes for gressFirewall in namespace %s stderr: %q, err: %+v", egressFirewall.Namespace, stderr, err)
+					klog.Errorf("Failed to commit db changes for egressFirewall in namespace %s stderr: %q, err: %+v", egressFirewall.Namespace, stderr, err)
 					egressFirewall.Status.Status = egressFirewallAddError
 				} else {
 					egressFirewall.Status.Status = egressFirewallAppliedCorrectly
@@ -676,16 +727,21 @@ func (oc *Controller) WatchEgressNodes() {
 				klog.Error(err)
 			}
 			nodeLabels := node.GetLabels()
-			if _, hasEgressLabel := nodeLabels[nodeEgressLabel]; hasEgressLabel {
+			_, hasEgressLabel := nodeLabels[nodeEgressLabel]
+			if hasEgressLabel {
 				oc.setNodeEgressAssignable(node.Name, true)
-				if oc.isEgressNodeReady(node) {
-					oc.setNodeEgressReady(node.Name, true)
-					if oc.isEgressNodeReachable(node) {
-						oc.setNodeEgressReachable(node.Name, true)
-						if err := oc.addEgressNode(node); err != nil {
-							klog.Error(err)
-						}
-					}
+			}
+			isReady := oc.isEgressNodeReady(node)
+			if isReady {
+				oc.setNodeEgressReady(node.Name, true)
+			}
+			isReachable := oc.isEgressNodeReachable(node)
+			if isReachable {
+				oc.setNodeEgressReachable(node.Name, true)
+			}
+			if hasEgressLabel && isReachable && isReady {
+				if err := oc.addEgressNode(node); err != nil {
+					klog.Error(err)
 				}
 			}
 		},
@@ -990,6 +1046,20 @@ func (oc *Controller) WatchNodes() {
 				}
 				gatewaysFailed.Store(node.Name, true)
 			}
+
+			// ensure pods that already exist on this node have their logical ports created
+			options := metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector("spec.nodeName", node.Name).String()}
+			pods, err := oc.client.CoreV1().Pods(metav1.NamespaceAll).List(context.TODO(), options)
+			if err != nil {
+				klog.Errorf("Unable to list existing pods on node: %s, existing pods on this node may not function")
+			} else {
+				for _, pod := range pods.Items {
+					if !oc.ensurePod(nil, &pod, true) {
+						oc.addRetryPod(&pod)
+					}
+				}
+			}
+
 		},
 		UpdateFunc: func(old, new interface{}) {
 			oldNode := old.(*kapi.Node)
@@ -1197,6 +1267,7 @@ func (oc *Controller) StartServiceController(wg *sync.WaitGroup, runRepair bool)
 
 	oc.svcController = svccontroller.NewController(
 		oc.client,
+		oc.nbClient,
 		svcFactory.Core().V1().Services(),
 		svcFactory.Discovery().V1beta1().EndpointSlices(),
 		oc.clusterPortGroupUUID,

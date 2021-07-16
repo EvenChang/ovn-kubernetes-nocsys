@@ -73,7 +73,8 @@ func setupOVNNode(node *kapi.Node) error {
 		}
 	}
 
-	_, stderr, err := util.RunOVSVsctl("set",
+	setExternalIdsCmd := []string{
+		"set",
 		"Open_vSwitch",
 		".",
 		fmt.Sprintf("external_ids:ovn-encap-type=%s", config.Default.EncapType),
@@ -84,7 +85,22 @@ func setupOVNNode(node *kapi.Node) error {
 			config.Default.OpenFlowProbe),
 		fmt.Sprintf("external_ids:hostname=\"%s\"", node.Name),
 		"external_ids:ovn-monitor-all=true",
-	)
+		fmt.Sprintf("external_ids:ovn-enable-lflow-cache=%t", config.Default.LFlowCacheEnable),
+	}
+
+	if config.Default.LFlowCacheLimit > 0 {
+		setExternalIdsCmd = append(setExternalIdsCmd,
+			fmt.Sprintf("external_ids:ovn-limit-lflow-cache=%d", config.Default.LFlowCacheLimit),
+		)
+	}
+
+	if config.Default.LFlowCacheLimitKb > 0 {
+		setExternalIdsCmd = append(setExternalIdsCmd,
+			fmt.Sprintf("external_ids:ovn-limit-lflow-cache-kb=%d", config.Default.LFlowCacheLimitKb),
+		)
+	}
+
+	_, stderr, err := util.RunOVSVsctl(setExternalIdsCmd...)
 	if err != nil {
 		return fmt.Errorf("error setting OVS external IDs: %v\n  %q", err, stderr)
 	}
@@ -395,7 +411,7 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 					} else {
 						gwIP = mgmtPortConfig.ipv6.gwIP
 					}
-					err := util.LinkRoutesAdd(link, gwIP, []*net.IPNet{subnet})
+					err := util.LinkRoutesAdd(link, gwIP, []*net.IPNet{subnet}, 0)
 					if err != nil && !os.IsExist(err) {
 						return fmt.Errorf("unable to add legacy route for services via mp0, error: %v", err)
 					}
@@ -449,11 +465,10 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 
 	if config.OvnKubeNode.Mode != types.NodeModeSmartNICHost {
 		// start health check to ensure there are no stale OVS internal ports
-		go checkForStaleOVSInterfaces(n.stopChan)
+		go checkForStaleOVSInterfaces(n.stopChan, n.name, n.watchFactory.(*factory.WatchFactory))
 
 		// start management port health check
 		go checkManagementPortHealth(mgmtPortConfig, n.stopChan)
-
 		n.WatchEndpoints()
 	}
 
@@ -546,7 +561,7 @@ func configureSvcRouteViaBridge(bridge string) error {
 		if err != nil {
 			return fmt.Errorf("unable to find gateway IP for subnet: %v, found IPs: %v", subnet, gwIPs)
 		}
-		err = util.LinkRoutesAdd(link, gwIP[0], []*net.IPNet{subnet})
+		err = util.LinkRoutesAdd(link, gwIP[0], []*net.IPNet{subnet}, config.Default.MTU)
 		if err != nil && !os.IsExist(err) {
 			return fmt.Errorf("unable to add route for service via shared gw bridge, error: %v", err)
 		}

@@ -32,9 +32,6 @@ Services.+session affinity
 # NOT IMPLEMENTED; SEE DISCUSSION IN https://github.com/ovn-org/ovn-kubernetes/pull/1225
 named port.+\[Feature:NetworkPolicy\]
 
-# TO BE FIXED BY https://github.com/kubernetes/kubernetes/pull/93119
-GCE
-
 # Clean up SCTP tests https://github.com/kubernetes/kubernetes/issues/96717
 \[Feature:SCTP\]
 
@@ -43,9 +40,6 @@ service.kubernetes.io/headless
 
 # TO BE FIXED BY https://github.com/kubernetes/kubernetes/pull/95351
 should resolve connection reset issue #74839
-
-# Broken in shared gw mode
-service endpoints using hostNetwork
 
 # api flakes
 sig-api-machinery

@@ -34,6 +34,7 @@ usage() {
     echo "usage: kind.sh [[[-cf |--config-file <file>] [-kt|keep-taint] [-ha|--ha-enabled]"
     echo "                 [-ho |--hybrid-enabled] [-ii|--install-ingress] [-n4|--no-ipv4]"
     echo "                 [-i6 |--ipv6] [-wk|--num-workers <num>] [-ds|--disable-snat-multiple-gws]"
+    echo "                 [-dp |--disable-pkt-mtu-check]"
     echo "                 [-nf |--netflow-targets <targets>] [sf|--sflow-targets <targets>] [-if|--ipfix-targets]"
     echo "                 [-sw |--allow-system-writes] [-gm|--gateway-mode <mode>]"
     echo "                 [-nl |--node-loglevel <num>] [-ml|--master-loglevel <num>]"
@@ -49,6 +50,7 @@ usage() {
     echo "-ha  | --ha-enabled                Enable high availability. DEFAULT: HA Disabled."
     echo "-ho  | --hybrid-enabled            Enable hybrid overlay. DEFAULT: Disabled."
     echo "-ds  | --disable-snat-multiple-gws Disable SNAT for multiple gws. DEFAULT: Disabled."
+    echo "-dp  | --disable-pkt-mtu-check     Disable checking packet size greater than MTU. Default: Disabled"
     echo "-nf  | --netflow-targets           Comma delimited list of ip:port netflow collectors. DEFAULT: Disabled."
     echo "-sf  | --sflow-targets             Comma delimited list of ip:port sflow collectors. DEFAULT: Disabled."
     echo "-if  | --ipfix-targets             Comma delimited list of ip:port ipfix collectors. DEFAULT: Disabled."
@@ -97,6 +99,8 @@ parse_args() {
             -ho | --hybrid-enabled )            OVN_HYBRID_OVERLAY_ENABLE=true
                                                 ;;
             -ds | --disable-snat-multiple-gws ) OVN_DISABLE_SNAT_MULTIPLE_GWS=true
+                                                ;;
+            -dp | --disable-pkt-mtu-check )     OVN_DISABLE_PKT_MTU_CHECK=true
                                                 ;;
             -nf | --netflow-targets )           shift
                                                 OVN_NETFLOW_TARGETS=$1
@@ -204,6 +208,7 @@ print_params() {
      echo "OVN_GATEWAY_MODE = $OVN_GATEWAY_MODE"
      echo "OVN_HYBRID_OVERLAY_ENABLE = $OVN_HYBRID_OVERLAY_ENABLE"
      echo "OVN_DISABLE_SNAT_MULTIPLE_GWS = $OVN_DISABLE_SNAT_MULTIPLE_GWS"
+     echo "OVN_DISABLE_PKT_MTU_CHECK = $OVN_DISABLE_PKT_MTU_CHECK"
      echo "OVN_NETFLOW_TARGETS = $OVN_NETFLOW_TARGETS"
      echo "OVN_SFLOW_TARGETS = $OVN_SFLOW_TARGETS"
      echo "OVN_IPFIX_TARGETS = $OVN_IPFIX_TARGETS"
@@ -242,6 +247,7 @@ set_default_params() {
   KIND_IPV6_SUPPORT=${KIND_IPV6_SUPPORT:-false}
   OVN_HYBRID_OVERLAY_ENABLE=${OVN_HYBRID_OVERLAY_ENABLE:-false}
   OVN_DISABLE_SNAT_MULTIPLE_GWS=${OVN_DISABLE_SNAT_MULTIPLE_GWS:-false}
+  OVN_DISABLE_PKT_MTU_CHECK=${OVN_DISABLE_PKT_MTU_CHECK:-false}
   OVN_EMPTY_LB_EVENTS=${OVN_EMPTY_LB_EVENTS:-false}
   OVN_MULTICAST_ENABLE=${OVN_MULTICAST_ENABLE:-false}
   KIND_ALLOW_SYSTEM_WRITES=${KIND_ALLOW_SYSTEM_WRITES:-false}
@@ -356,7 +362,7 @@ set_cluster_cidr_ip_families() {
     SVC_CIDR=$SVC_CIDR_IPV6
     echo "IPv6 Only Support: API_IP=$API_IP --net-cidr=$NET_CIDR --svc-cidr=$SVC_CIDR"
   elif [ "$KIND_IPV4_SUPPORT" == true ] && [ "$KIND_IPV6_SUPPORT" == true ]; then
-    IP_FAMILY="DualStack"
+    IP_FAMILY="dual"
     NET_CIDR=$NET_CIDR_IPV4,$NET_CIDR_IPV6
     SVC_CIDR=$SVC_CIDR_IPV4,$SVC_CIDR_IPV6
     echo "Dual Stack Support: API_IP=$API_IP --net-cidr=$NET_CIDR --svc-cidr=$SVC_CIDR"
@@ -386,13 +392,6 @@ create_kind_cluster() {
   fi
   kind create cluster --name "${KIND_CLUSTER_NAME}" --kubeconfig "${KUBECONFIG}" --image kindest/node:"${K8S_VERSION}" --config=${KIND_CONFIG_LCL}
   cat "${KUBECONFIG}"
-}
-
-delete_kube_proxy() {
-  run_kubectl -n kube-system delete ds kube-proxy
-  kind get clusters
-  kind get nodes --name "${KIND_CLUSTER_NAME}"
-  kind export kubeconfig --name "${KIND_CLUSTER_NAME}"
 }
 
 docker_disable_ipv6() {
@@ -469,6 +468,7 @@ create_ovn_kube_manifests() {
     --gateway-mode="${OVN_GATEWAY_MODE}" \
     --hybrid-enabled="${OVN_HYBRID_OVERLAY_ENABLE}" \
     --disable-snat-multiple-gws="${OVN_DISABLE_SNAT_MULTIPLE_GWS}" \
+    --disable-pkt-mtu-check="${OVN_DISABLE_PKT_MTU_CHECK}" \
     --ovn-empty-lb-events="${OVN_EMPTY_LB_EVENTS}" \
     --multicast-enabled="${OVN_MULTICAST_ENABLE}" \
     --k8s-apiserver="${API_URL}" \
@@ -547,21 +547,6 @@ kubectl_wait_pods() {
   fi
 }
 
-cleanup_kube_proxy_iptables() {
-  # Clean up any leftover kube-proxy iptables rules that handle services
-  KIND_NODES=$(kind get nodes --name "${KIND_CLUSTER_NAME}")
-  for n in $KIND_NODES; do
-    if [ "$KIND_IPV4_SUPPORT" == true ]; then
-      docker exec "$n" iptables -F KUBE-SERVICES
-      docker exec "$n" iptables -F KUBE-SERVICES -t nat
-    fi
-    if [ "$KIND_IPV6_SUPPORT" == true ]; then
-      docker exec "$n" ip6tables -F KUBE-SERVICES
-      docker exec "$n" ip6tables -F KUBE-SERVICES -t nat
-    fi
-  done
-}
-
 sleep_until_pods_settle() {
   echo "Pods are all up, allowing things settle for 30 seconds..."
   sleep 30
@@ -588,7 +573,5 @@ install_ovn
 if [ "$KIND_INSTALL_INGRESS" == true ]; then
   install_ingress
 fi
-delete_kube_proxy
 kubectl_wait_pods
-cleanup_kube_proxy_iptables
 sleep_until_pods_settle

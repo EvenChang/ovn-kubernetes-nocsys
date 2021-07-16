@@ -3,11 +3,13 @@ package util
 import (
 	"encoding/json"
 	"fmt"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"net"
 
 	"k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 	utilnet "k8s.io/utils/net"
+	"strconv"
 )
 
 // This handles the "k8s.ovn.org/pod-networks" annotation on Pods, used to pass
@@ -44,6 +46,8 @@ const (
 	OvnPodAnnotationName = "k8s.ovn.org/pod-networks"
 	// OvnPodDefaultNetwork is the constant string representing the first OVN interface to the Pod
 	OvnPodDefaultNetwork = "default"
+
+	OvnPodQosAnnotation = "k8s.ovn.org/pod-qos"
 )
 
 // PodAnnotation describes the assigned network details for a single pod network. (The
@@ -83,6 +87,42 @@ type podAnnotation struct {
 type podRoute struct {
 	Dest    string `json:"dest"`
 	NextHop string `json:"nextHop"`
+}
+
+type QosAnnotation struct {
+	IngressRate  int
+	IngressBurst int
+	IngressDscp  int
+
+	EgressRate  int
+	EgressBurst int
+	EgressDscp  int
+}
+
+type qosAnnotation struct {
+	IngressInfo qosInfo `json:"ingress"`
+	EgressInfo  qosInfo `json:"egress"`
+}
+
+type qosInfo struct {
+	Rate  string `json:"rate"`
+	Burst string `json:"burst"`
+	Dscp  string `json:"dscp"`
+}
+
+var (
+	minRsrc = resource.MustParse("1k")
+	maxRsrc = resource.MustParse("4Pi")
+)
+
+func validateBandwidthIsReasonable(rsrc *resource.Quantity) error {
+	if rsrc.Value() < minRsrc.Value() {
+		return fmt.Errorf("resource is unreasonably small (< 1kbit)")
+	}
+	if rsrc.Value() > maxRsrc.Value() {
+		return fmt.Errorf("resoruce is unreasonably large (> 4Pbit)")
+	}
+	return nil
 }
 
 // MarshalPodAnnotation returns a JSON-formatted annotation describing the pod's
@@ -246,4 +286,114 @@ func GetAllPodIPs(pod *v1.Pod) ([]net.IP, error) {
 		ips = append(ips, ip)
 	}
 	return ips, nil
+}
+
+func getValueInStr(valueStr string) (int, error) {
+	value, err := resource.ParseQuantity(valueStr)
+	if err != nil {
+		return -1, err
+	}
+
+	if err := validateBandwidthIsReasonable(&value); err != nil {
+		return -1, err
+	}
+
+	return int(value.Value()), nil
+}
+
+func GetPodQosAnnotations(annotations map[string]string) (*QosAnnotation, error) {
+
+	var err error
+	var value int
+
+	podQosAnnotation, ok := annotations[OvnPodQosAnnotation]
+	if !ok {
+		return nil, newAnnotationNotSetError("could not find OVN pod qos annotation in %v", annotations)
+	}
+
+	qosAnn := qosAnnotation{}
+	if err := json.Unmarshal([]byte(podQosAnnotation), &qosAnn); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal ovn pod qos annotation %q: %v",
+			podQosAnnotation, err)
+	}
+
+	resultAnn := QosAnnotation{-1, -1, -1, -1, -1, -1}
+
+	if len(qosAnn.IngressInfo.Rate) > 0 {
+		value, err = getValueInStr(qosAnn.IngressInfo.Rate)
+		if err != nil {
+			return nil, err
+		}
+		resultAnn.IngressRate = value / 1000
+	}
+
+	if len(qosAnn.IngressInfo.Burst) > 0 {
+		if resultAnn.IngressRate == -1 {
+			return nil, fmt.Errorf("the burst option needs to specify the rate, but rate is nil")
+		}
+		value, err = getValueInStr(qosAnn.IngressInfo.Burst)
+		if err != nil {
+			return nil, err
+		}
+		resultAnn.IngressBurst = value / 1000
+	}
+
+	if len(qosAnn.IngressInfo.Dscp) > 0 {
+		value, err = strconv.Atoi(qosAnn.IngressInfo.Dscp)
+
+		if err != nil {
+			return nil, err
+		}
+
+		if value < 0 || value > 63 {
+			return nil, fmt.Errorf("dscp action should be in the range of 0 to 63, this value is %d", value)
+		}
+
+		resultAnn.IngressDscp = value
+
+	}
+
+	if len(qosAnn.EgressInfo.Rate) > 0 {
+		value, err = getValueInStr(qosAnn.EgressInfo.Rate)
+		if err != nil {
+			return nil, err
+		}
+
+		resultAnn.EgressRate = value / 1000
+	}
+
+	if len(qosAnn.EgressInfo.Burst) > 0 {
+
+		if resultAnn.EgressRate == -1 {
+			return nil, fmt.Errorf("the burst option needs to specify the rate, but rate is nil")
+		}
+
+		value, err = getValueInStr(qosAnn.EgressInfo.Burst)
+		if err != nil {
+			return nil, err
+		}
+		resultAnn.EgressBurst = value / 1000
+	}
+
+	if len(qosAnn.EgressInfo.Dscp) > 0 {
+		value, err = strconv.Atoi(qosAnn.EgressInfo.Dscp)
+
+		if err != nil {
+			return nil, err
+		}
+
+		if value < 0 || value > 63 {
+			return nil, fmt.Errorf("dscp action should be in the range of 0 to 63, this value is %d", value)
+		}
+
+		resultAnn.EgressDscp = value
+	}
+
+	return &resultAnn, nil
+}
+
+func QosAnnotionsChanged(oldPod, newPod *v1.Pod) bool {
+
+	return oldPod.Annotations[OvnPodQosAnnotation] != newPod.Annotations[OvnPodQosAnnotation]
+
 }

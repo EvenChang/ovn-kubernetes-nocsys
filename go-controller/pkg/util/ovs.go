@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -51,6 +52,7 @@ const (
 	ubuntu             = "Ubuntu"
 	windowsOS          = "windows"
 	defaultOSMaxArgs   = 262144
+	minOSArgs          = 1000
 )
 
 const (
@@ -90,17 +92,31 @@ var MetricOvnCliLatency *prometheus.HistogramVec
 var maxArgs int
 
 func init() {
-	out, err := exec.Command("getconf", "ARG_MAX").Output()
-	if err != nil {
-		v, err := strconv.Atoi(strings.TrimSuffix(string(out), "\n"))
-		if err == nil {
-			maxArgs = v
+	maxArgs = findMaxArgsUsable(defaultOSMaxArgs)
+	klog.Infof("Maximum command line arguments set to: %d", maxArgs)
+}
+
+// findMaxArgsUsable finds the maximum amount of usable args on the system, which may be
+// different than what the kernel returns for ARG_MAX
+func findMaxArgsUsable(estimatedMax int) int {
+	backoff := .9
+	args := make([]string, estimatedMax)
+	for i := range args {
+		args[i] = "a"
+	}
+
+	for estimatedMax > minOSArgs {
+		if _, err := exec.Command("/bin/true", args...).Output(); err == nil {
+			break
 		}
+		estimatedMax = int(float64(estimatedMax) * backoff)
+		args = args[:estimatedMax]
 	}
-	if maxArgs == 0 {
-		klog.Warningf("Unable to detect OS MAX_ARGS, defaulting to: %d", defaultOSMaxArgs)
-		maxArgs = defaultOSMaxArgs
+
+	if estimatedMax < minOSArgs {
+		estimatedMax = minOSArgs
 	}
+	return estimatedMax
 }
 
 func runningPlatform() (string, error) {
@@ -359,6 +375,15 @@ func RunOVSVsctl(args ...string) (string, string, error) {
 	cmdArgs = append(cmdArgs, args...)
 	stdout, stderr, err := run(runner.vsctlPath, cmdArgs...)
 	return strings.Trim(strings.TrimSpace(stdout.String()), "\""), stderr.String(), err
+}
+
+// GetOVSOfPort runs get ofport via ovs-vsctl and handle special return strings.
+func GetOVSOfPort(args ...string) (string, string, error) {
+	stdout, stderr, err := RunOVSVsctl(args...)
+	if stdout == "[]" || stdout == "-1" {
+		err = fmt.Errorf("%s return invalid result %s err %s", args, stdout, err)
+	}
+	return stdout, stderr, err
 }
 
 // RunOVSAppctlWithTimeout runs a command via ovs-appctl.
@@ -886,8 +911,15 @@ func (t *NBTxn) AddOrCommit(args []string) (string, string, error) {
 		incomingLength += 1
 	}
 
+	klog.V(5).Infof("Number of args: %d, txnArgs: %d, incomingLen: %d, buffer: %d", len(t.args),
+		len(t.txnArgs), incomingLength, buffer)
+
 	// case where we are going to exceed max arguments
-	if len(t.args)+len(t.txnArgs)+incomingLength+buffer > maxArgs {
+	// also check entire line length is going be over 100k
+	// maximum bash command seems to be a combination of max args and length of each argument
+	// maximum length is PAGE_SIZE * 32 which we can assume to be 4k page, and equals 131072
+	if len(t.args)+len(t.txnArgs)+incomingLength+buffer > maxArgs || len(strings.Join(t.args, " "))+
+		len(strings.Join(t.txnArgs, " "))+len(strings.Join(args, " ")) > 100000 {
 		klog.Info("Requested transaction add is too large, committing...")
 		if stdout, stderr, err := t.Commit(); err != nil {
 			return stdout, stderr, err
@@ -898,4 +930,24 @@ func (t *NBTxn) AddOrCommit(args []string) (string, string, error) {
 
 	t.add(args...)
 	return "", "", nil
+}
+
+// DetectCheckPktLengthSupport checks if OVN supports check packet length action in OVS kernel datapath
+func DetectCheckPktLengthSupport(bridge string) (bool, error) {
+	stdout, stderr, err := RunOVSAppctl("dpif/show-dp-features", bridge)
+	if err != nil {
+		klog.Errorf("Failed to query OVS for check packet length support, "+
+			"stdout: %q, stderr: %q, error: %v", stdout, stderr, err)
+		return false, err
+	}
+
+	re := regexp.MustCompile(`(?i)yes|(?i)true`)
+
+	for _, line := range strings.Split(strings.TrimSuffix(stdout, "\n"), "\n") {
+		if strings.Contains(line, "Check pkt length action") && re.MatchString(line) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }

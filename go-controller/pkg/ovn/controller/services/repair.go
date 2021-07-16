@@ -1,11 +1,11 @@
 package services
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
 
-	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/metrics"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/acl"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/gateway"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/loadbalancer"
@@ -45,7 +45,6 @@ func (r *Repair) runOnce() error {
 	klog.V(4).Infof("Starting repairing loop for services")
 	defer func() {
 		klog.V(4).Infof("Finished repairing loop for services: %v", time.Since(startTime))
-		metrics.MetricSyncServiceLatency.WithLabelValues("repair-loop").Observe(time.Since(startTime).Seconds())
 	}()
 
 	// Obtain all the load balancers UUID
@@ -125,15 +124,22 @@ func (r *Repair) runOnce() error {
 				klog.V(4).Infof("Failed to get vips for %s load balancer %s, err: %v", p, lb, err)
 				continue
 			}
+			txn := util.NewNBTxn()
 			for vip := range vips {
 				key := virtualIPKey(vip, p)
 				// Virtual IP and protocol doesn't belong to a Kubernetes service
 				if !svcVIPsProtocolMap.Has(key) {
 					klog.Infof("Deleting non-existing Kubernetes vip %s from OVN %s load balancer %s", vip, p, lb)
-					if err := loadbalancer.DeleteLoadBalancerVIP(lb, vip); err != nil {
+					if err := loadbalancer.DeleteLoadBalancerVIP(txn, lb, vip); err != nil {
 						klog.V(4).Infof("Failed to delete %s load balancer vips %s for %s, err: %v", p, vip, lb, err)
 					}
 				}
+			}
+			stdout, stderr, err := txn.Commit()
+			if err != nil {
+				return fmt.Errorf("error in deleting %s load balancer %s stale vips, "+
+					"stdout: %q, stderr: %q, err: %v",
+					p, lb, stdout, stderr, err)
 			}
 		}
 	}
