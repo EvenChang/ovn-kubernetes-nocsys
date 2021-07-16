@@ -70,7 +70,7 @@ const (
 	// FloatingIPCreating means the floating ip has been verified, and will be creating
 	FloatingIPCreating FloatingIPPhase = "Creating"
 	// FloatingIPSucceeded means the floating ip has been creating successful.
-	FloatingIPSucceeded FloatingIPPhase = "Succeeded"
+	FloatingIPSucceeded FloatingIPPhase = "Success"
 	// FloatingIPFailed means some errors happened.
 	FloatingIPFailed FloatingIPPhase = "Failed"
 )

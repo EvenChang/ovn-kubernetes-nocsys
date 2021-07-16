@@ -3,10 +3,13 @@ package ovn
 import (
 	"fmt"
 	floatingipv1 "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1"
+	floatingipscheme "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/clientset/versioned/scheme"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 	kapi "k8s.io/api/core/v1"
 	utilwait "k8s.io/apimachinery/pkg/util/wait"
+	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	utilnet "k8s.io/utils/net"
@@ -32,11 +35,13 @@ func (oc *Controller) addFloatingIP(fIP *floatingipv1.FloatingIP) error {
 	}
 
 	if err = oc.fIPC.addPodFloatingIP(podIPs, fIP); err != nil {
+		oc.fIPC.recorder.Eventf(fIP, kapi.EventTypeWarning, "AssignFloatingIPFailed", "%v", err)
 		fIP.Status.Phase = floatingipv1.FloatingIPFailed
 		return fmt.Errorf("unable to add pod(%s/%s)'s FloatingIP: %s, err: %v", pod.Namespace, pod.Name, fIP.Name, err)
 	}
 
 	fIP.Status.Phase = floatingipv1.FloatingIPSucceeded
+	oc.fIPC.recorder.Eventf(fIP, kapi.EventTypeNormal, "Configuration", "SetOvnSuccess")
 	return nil
 }
 
@@ -53,6 +58,7 @@ func (oc *Controller) deleteFloatingIP(fIP *floatingipv1.FloatingIP) error {
 	}
 
 	if err := oc.fIPC.deletePodFloatingIP(podIPs, fIP); err != nil {
+		oc.fIPC.recorder.Eventf(fIP, kapi.EventTypeWarning, "RemoveFloatingIPFailed", "%v", err)
 		return fmt.Errorf("unable to delete pod(%s/%s)'s FloatingIP: %s, err: %v",
 			spec.PodNamespace, spec.Pod, fIP.Name, err)
 	}
@@ -118,6 +124,21 @@ func findOneToOneNatIDs(floatingIPName, podIP, floatingIP string) ([]string, err
 type floatingIPController struct {
 	// Cache of gateway join router IPs, useful since these should not change often
 	gatewayIPCache sync.Map
+
+	// event recorder used to post events to k8s
+	recorder record.EventRecorder
+}
+
+func newFIPController(ovnClient *util.OVNClientset) *floatingIPController {
+	broadcaster := record.NewBroadcaster()
+	broadcaster.StartStructuredLogging(0)
+	broadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: ovnClient.KubeClient.CoreV1().Events("")})
+	recorder := broadcaster.NewRecorder(floatingipscheme.Scheme, kapi.EventSource{Component: "fip-controller"})
+
+	return &floatingIPController{
+		gatewayIPCache: sync.Map{},
+		recorder:       recorder,
+	}
 }
 
 func (f *floatingIPController) addPodFloatingIP(podIPs []net.IP, fip *floatingipv1.FloatingIP) error {

@@ -176,7 +176,7 @@ type Controller struct {
 	svcController *svccontroller.Controller
 
 	// Controller used for floating ip
-	fIPC floatingIPController
+	fIPC *floatingIPController
 
 	// Controller used for floating ip claim
 	fIPCC *floatingIPClaimController
@@ -314,6 +314,7 @@ func NewOvnController(ovnClient *util.OVNClientset, wf *factory.WatchFactory,
 			allocatorMutex:        &sync.Mutex{},
 			allocator:             make(map[string]*egressNode),
 		},
+		fIPC:                     newFIPController(ovnClient),
 		fIPCC:                    ficc,
 		fIPNC:                    finc,
 		fIPPC:                    fipc,
@@ -852,7 +853,7 @@ func (oc *Controller) WatchFloatingIP() {
 				}
 			}
 		},
-	}, oc.syncFloatingIPs)
+	}, nil)
 }
 
 func (oc *Controller) WatchFloatingIPNodes() {
