@@ -122,7 +122,9 @@ func (fipc *floatingIpProviderController) addFloatingIPClaim(obj interface{}) {
 		defer func() {
 			if !ok {
 				for _, ap := range rollback {
-					allocator.ReleasePool(ap.Begin, ap.End)
+					if err := allocator.ReleasePool(ap.Begin, ap.End); err != nil {
+						klog.Errorf("It shouldn't happen: %v", err)
+					}
 				}
 			}
 		}()

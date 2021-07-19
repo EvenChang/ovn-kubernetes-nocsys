@@ -66,30 +66,6 @@ func (oc *Controller) deleteFloatingIP(fIP *floatingipv1.FloatingIP) error {
 	return nil
 }
 
-func (oc *Controller) syncFloatingIPs(objs []interface{}) {
-	for _, floatingIPInterface := range objs {
-		fIP, ok := floatingIPInterface.(*floatingipv1.FloatingIP)
-		if !ok {
-			klog.Errorf("Spurious object in sync Floating IP: %v", floatingIPInterface)
-			continue
-		}
-
-		if !util.IsIP(fIP.Status.FloatingIP) {
-			klog.V(5).Infof("Skip Floating IP creating for: %v which is not verified", fIP)
-			continue
-		}
-
-		floatingIP := fIP.DeepCopy()
-
-		if err := oc.addFloatingIP(floatingIP); err != nil {
-			klog.Error(err)
-		}
-		if err := oc.updateFloatingIPWithRetry(floatingIP); err != nil {
-			klog.Error(err)
-		}
-	}
-}
-
 func (oc *Controller) updateFloatingIPWithRetry(fIP *floatingipv1.FloatingIP) error {
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		return oc.kube.UpdateFloatingIP(fIP)

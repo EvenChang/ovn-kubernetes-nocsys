@@ -133,7 +133,9 @@ func (ficc *floatingIPClaimController) deleteFloatingIP(obj interface{}) {
 	suballocator, ok := ficc.suballocators[fi.Spec.FloatingIPClaim]
 	if ok {
 		if fi.Status.FloatingIP != "" {
-			suballocator.Release(net.ParseIP(fi.Status.FloatingIP))
+			if err := suballocator.Release(net.ParseIP(fi.Status.FloatingIP)); err != nil {
+				klog.Errorf("It shouldn't happen: %v", err)
+			}
 		}
 		if fi.Status.NodeName != "" {
 			ficc.Release(fi.Status.NodeName)
@@ -355,7 +357,9 @@ func (ficc *floatingIPClaimController) sync(key string) error {
 		}
 		defer func() {
 			if !ok {
-				allocator.Release(ip)
+				if err = allocator.Release(ip); err != nil {
+					klog.Errorf("It shouldn't happen: %v", err)
+				}
 			}
 		}()
 		node := ficc.Allocate()

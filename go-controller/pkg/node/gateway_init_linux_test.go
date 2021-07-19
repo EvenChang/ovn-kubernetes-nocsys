@@ -28,6 +28,9 @@ import (
 
 	egressfirewallfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressfirewall/v1/apis/clientset/versioned/fake"
 	egressipfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1/apis/clientset/versioned/fake"
+	floatingipfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/clientset/versioned/fake"
+	floatingipclaimfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1/apis/clientset/versioned/fake"
+	floatingipproviderfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1/apis/clientset/versioned/fake"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -161,9 +164,15 @@ func shareGatewayInterfaceTest(app *cli.App, testNS ns.NetNS,
 		})
 		egressFirewallFakeClient := &egressfirewallfake.Clientset{}
 		egressIPFakeClient := &egressipfake.Clientset{}
+		fIPFakeClient := &floatingipfake.Clientset{}
+		fIPCFakeClient := &floatingipclaimfake.Clientset{}
+		fIPPFakeClient := &floatingipproviderfake.Clientset{}
 		fakeClient := &util.OVNClientset{
-			KubeClient:           kubeFakeClient,
-			EgressFirewallClient: egressFirewallFakeClient,
+			KubeClient:               kubeFakeClient,
+			EgressFirewallClient:     egressFirewallFakeClient,
+			FloatingIPProviderClient: fIPPFakeClient,
+			FloatingIPClaimClient:    fIPCFakeClient,
+			FloatingIPClient:         fIPFakeClient,
 		}
 
 		stop := make(chan struct{})
@@ -175,7 +184,7 @@ func shareGatewayInterfaceTest(app *cli.App, testNS ns.NetNS,
 			wf.Shutdown()
 		}()
 
-		k := &kube.Kube{fakeClient.KubeClient, egressIPFakeClient, egressFirewallFakeClient}
+		k := &kube.Kube{fakeClient.KubeClient, egressIPFakeClient, egressFirewallFakeClient, fIPFakeClient, fIPCFakeClient, fIPPFakeClient}
 
 		iptV4, iptV6 := util.SetFakeIPTablesHelpers()
 

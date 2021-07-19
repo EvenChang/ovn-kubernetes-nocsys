@@ -15,6 +15,9 @@ import (
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	egressfirewallfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressfirewall/v1/apis/clientset/versioned/fake"
 	egressipfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1/apis/clientset/versioned/fake"
+	floatingipfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/clientset/versioned/fake"
+	floatingipclaimfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1/apis/clientset/versioned/fake"
+	floatingipproviderfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1/apis/clientset/versioned/fake"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/factory"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/kube"
 	addressset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/address_set"
@@ -1213,10 +1216,16 @@ var _ = ginkgo.Describe("Gateway Init Operations", func() {
 			})
 			egressFirewallFakeClient := &egressfirewallfake.Clientset{}
 			egressIPFakeClient := &egressipfake.Clientset{}
+			fIPFakeClient := &floatingipfake.Clientset{}
+			fIPCFakeClient := &floatingipclaimfake.Clientset{}
+			fIPPFakeClient := &floatingipproviderfake.Clientset{}
 			fakeClient := &util.OVNClientset{
-				KubeClient:           kubeFakeClient,
-				EgressIPClient:       egressIPFakeClient,
-				EgressFirewallClient: egressFirewallFakeClient,
+				KubeClient:               kubeFakeClient,
+				EgressIPClient:           egressIPFakeClient,
+				EgressFirewallClient:     egressFirewallFakeClient,
+				FloatingIPProviderClient: fIPPFakeClient,
+				FloatingIPClaimClient:    fIPCFakeClient,
+				FloatingIPClient:         fIPFakeClient,
 			}
 
 			fexec := ovntest.NewLooseCompareFakeExec()
@@ -1226,7 +1235,7 @@ var _ = ginkgo.Describe("Gateway Init Operations", func() {
 			_, err = config.InitConfig(ctx, fexec, nil)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			config.Kubernetes.HostNetworkNamespace = ""
-			nodeAnnotator := kube.NewNodeAnnotator(&kube.Kube{kubeFakeClient, egressIPFakeClient, egressFirewallFakeClient}, &testNode)
+			nodeAnnotator := kube.NewNodeAnnotator(&kube.Kube{kubeFakeClient, egressIPFakeClient, egressFirewallFakeClient, fIPFakeClient, fIPCFakeClient, fIPPFakeClient}, &testNode)
 			ifaceID := node1.PhysicalBridgeName + "_" + node1.Name
 			vlanID := uint(1024)
 			err = util.SetL3GatewayConfig(nodeAnnotator, &util.L3GatewayConfig{
