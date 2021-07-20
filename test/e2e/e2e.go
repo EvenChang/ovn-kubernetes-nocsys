@@ -42,6 +42,7 @@ const (
 	retryTimeout         = 40 * time.Second // polling timeout
 	ciNetworkName        = "kind"
 	agnhostImage         = "k8s.gcr.io/e2e-test-images/agnhost:2.26"
+	iperf3Image          = "networkstatic/iperf3"
 )
 
 type podCondition = func(pod *v1.Pod) (bool, error)
@@ -249,6 +250,18 @@ func createGenericPodWithLabel(f *framework.Framework, podName, nodeSelector, na
 	return createPod(f, podName, nodeSelector, namespace, command, labels)
 }
 
+func createIperf3Pod(f *framework.Framework, podName, nodeSelector, namespace string, command []string, annotations map[string]string) (*v1.Pod, error) {
+	return createPodWithImage(f, podName, iperf3Image, nodeSelector, namespace, command, nil, func(pod *v1.Pod) {
+
+		if annotations == nil {
+			return
+		}
+
+		pod.ObjectMeta.Annotations = annotations
+
+	})
+}
+
 func createServiceForPodsWithLabel(f *framework.Framework, namespace string, servicePort int32, targetPort string, serviceType string, labels map[string]string) (string, error) {
 	service := &v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -326,6 +339,11 @@ func getPod(f *framework.Framework, podName string) *v1.Pod {
 
 // Create a pod on the specified node using the agnostic host image
 func createPod(f *framework.Framework, podName, nodeSelector, namespace string, command []string, labels map[string]string, options ...func(*v1.Pod)) (*v1.Pod, error) {
+	return createPodWithImage(f, podName, agnhostImage, nodeSelector, namespace, command, labels, options...)
+}
+
+
+func createPodWithImage(f *framework.Framework, podName, imageNmae, nodeSelector, namespace string, command []string, labels map[string]string, options ...func(*v1.Pod)) (*v1.Pod, error) {
 
 	contName := fmt.Sprintf("%s-container", podName)
 
@@ -338,7 +356,7 @@ func createPod(f *framework.Framework, podName, nodeSelector, namespace string, 
 			Containers: []v1.Container{
 				{
 					Name:    contName,
-					Image:   agnhostImage,
+					Image:   imageNmae,
 					Command: command,
 				},
 			},
@@ -406,6 +424,29 @@ func runCommand(cmd ...string) (string, error) {
 		return "", fmt.Errorf("failed to run %q: %s (%s)", strings.Join(cmd, " "), err, output)
 	}
 	return string(output), nil
+}
+
+func parseIperf3Output(iperf3Str []byte) (senderSpeed int, recvSpeed int, err error) {
+	var result map[string]interface{}
+
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("parse iperf3 output failed, output is %s", iperf3Str)
+			senderSpeed = -1
+			recvSpeed = -1
+		}
+
+	}()
+
+	json.Unmarshal([]byte(iperf3Str), &result)
+
+	endMap := result["end"].(map[string]interface{})
+
+	senderSpeed = int(endMap["streams"].([]interface{})[0].(map[string]interface{})["sender"].(map[string]interface{})["bits_per_second"].(float64))
+
+	recvSpeed = int(endMap["streams"].([]interface{})[0].(map[string]interface{})["receiver"].(map[string]interface{})["bits_per_second"].(float64))
+
+	return senderSpeed, recvSpeed, nil
 }
 
 var _ = ginkgo.Describe("e2e control plane", func() {
@@ -532,6 +573,150 @@ var _ = ginkgo.Describe("test e2e pod connectivity to host addresses", func() {
 		framework.ExpectNoError(
 			checkConnectivityPingToHost(f, ovnWorkerNode, "e2e-src-ping-pod", targetIP, ipv4PingCommand, 30, false))
 	})
+})
+
+var _ = ginkgo.Describe("Pod qos in ovn test", func() {
+	const (
+		svcname             string = "pod-qos-test"
+		getPodIPRetry       int    = 20
+		OvnPodQosAnnotation string = "k8s.ovn.org/pod-qos"
+	)
+
+	f := framework.NewDefaultFramework(svcname)
+
+	ginkgo.It("Set client pod egress speed to 5Mb/s", func() {
+		var validIP net.IP
+		var serverTarget string
+
+		iperf3ServerPodName := "iperf3-server"
+		commandServer := []string{"iperf3", "-s"}
+
+		createIperf3Pod(f, iperf3ServerPodName, "", f.Namespace.Name, commandServer, nil)
+
+		for i := 1; i < getPodIPRetry; i++ {
+			serverTarget = getPodAddress(iperf3ServerPodName, f.Namespace.Name)
+			validIP = net.ParseIP(serverTarget)
+			if validIP != nil {
+				framework.Logf("Destination ip for %s is %s", iperf3ServerPodName, serverTarget)
+				break
+			}
+			time.Sleep(time.Second * 4)
+			framework.Logf("Retry attempt %d to get pod IP from initializing pod %s", i, iperf3ServerPodName)
+
+			if validIP == nil {
+				framework.Failf("Warning: Failed to get an IP for target pod %s, test will fail", iperf3ServerPodName)
+			}
+		}
+
+		iperf3ClientPodName := "iperf3-client"
+		commandClient := []string{"iperf3", "-c", serverTarget, "-J"}
+
+		// set client egress speed to 5Mbits/s
+		annotations := map[string]string{OvnPodQosAnnotation: "{\"egress\":{\"rate\": \"5M\"}}"}
+
+		clientPod, _ := createIperf3Pod(f, iperf3ClientPodName, "", f.Namespace.Name, commandClient, annotations)
+
+		err := e2epod.WaitForPodSuccessInNamespace(f.ClientSet, iperf3ClientPodName, f.Namespace.Name)
+
+		framework.ExpectNoError(err)
+
+		logs, logErr := e2epod.GetPodLogs(f.ClientSet, f.Namespace.Name, clientPod.Name, clientPod.Spec.Containers[0].Name)
+		if logErr != nil {
+			framework.Failf("Warning: Failed to get logs from pod %q: %v", clientPod.Name, logErr)
+		}
+
+		senderSpeed, recvSpeed, err := parseIperf3Output([]byte(logs))
+
+		framework.ExpectNoError(err)
+
+		framework.Logf("result senderSpeed %d recvSpeed %d", senderSpeed, recvSpeed)
+
+		// expect the real speed of iperf3 is in range(3M,8M)
+		framework.ExpectEqual(true, senderSpeed >= 3000000 && senderSpeed <= 8000000)
+
+	})
+
+	ginkgo.It("test server pod ingress speed and update qos annotations", func() {
+		var validIP net.IP
+		var serverTarget string
+
+		iperf3ServerPodName := "iperf3-server"
+		commandServer := []string{"iperf3", "-s"}
+
+		// set server ingress speed to 10Mbits/s
+		annotations := map[string]string{OvnPodQosAnnotation: "{\"ingress\":{\"rate\": \"10M\"}}"}
+		serverPod, err := createIperf3Pod(f, iperf3ServerPodName, "", f.Namespace.Name, commandServer, annotations)
+		framework.ExpectNoError(err)
+
+		for i := 1; i < getPodIPRetry; i++ {
+			serverTarget = getPodAddress(iperf3ServerPodName, f.Namespace.Name)
+			validIP = net.ParseIP(serverTarget)
+			if validIP != nil {
+				framework.Logf("Destination ip for %s is %s", iperf3ServerPodName, serverTarget)
+				break
+			}
+			time.Sleep(time.Second * 4)
+			framework.Logf("Retry attempt %d to get pod IP from initializing pod %s", i, iperf3ServerPodName)
+
+			if validIP == nil {
+				framework.Failf("Warning: Failed to get an IP for target pod %s, test will fail", iperf3ServerPodName)
+			}
+		}
+
+		iperf3ClientPodName := "iperf3-client"
+		commandClient := []string{"iperf3", "-c", serverTarget, "-J"}
+
+		clientPod, err := createIperf3Pod(f, iperf3ClientPodName, "", f.Namespace.Name, commandClient, nil)
+		framework.ExpectNoError(err)
+
+		err = e2epod.WaitForPodSuccessInNamespace(f.ClientSet, iperf3ClientPodName, f.Namespace.Name)
+
+		framework.ExpectNoError(err)
+
+		logs, logErr := e2epod.GetPodLogs(f.ClientSet, f.Namespace.Name, clientPod.Name, clientPod.Spec.Containers[0].Name)
+		if logErr != nil {
+			framework.Failf("Warning: Failed to get logs from pod %q: %v", clientPod.Name, logErr)
+		}
+
+		senderSpeed, recvSpeed, err := parseIperf3Output([]byte(logs))
+
+		framework.ExpectNoError(err)
+
+		framework.Logf("limit 10M senderSpeed %d recvSpeed %d", senderSpeed, recvSpeed)
+
+		// expect the real speed of iperf3 is in range(8M,13M)
+		framework.ExpectEqual(true, senderSpeed >= 8000000 && senderSpeed <= 13000000)
+
+		framework.Logf("now update serverPod ingress speed to 20Mbits/s")
+
+		// update server pod's qos ingress speed to 20MBits/s and retest
+		serverPod.ObjectMeta.Annotations[OvnPodQosAnnotation] = "{\"ingress\":{\"rate\": \"20M\"}}"
+
+		updatePod(f, serverPod)
+
+		iperf3ClientPod2Name := "iperf3-client2"
+		clientPod2, err := createIperf3Pod(f, iperf3ClientPod2Name, "", f.Namespace.Name, commandClient, nil)
+		framework.ExpectNoError(err)
+
+		err = e2epod.WaitForPodSuccessInNamespace(f.ClientSet, iperf3ClientPod2Name, f.Namespace.Name)
+
+		framework.ExpectNoError(err)
+
+		logs, logErr = e2epod.GetPodLogs(f.ClientSet, f.Namespace.Name, clientPod2.Name, clientPod2.Spec.Containers[0].Name)
+		if logErr != nil {
+			framework.Failf("Warning: Failed to get logs from pod %q: %v", clientPod2.Name, logErr)
+		}
+
+		senderSpeed, recvSpeed, err = parseIperf3Output([]byte(logs))
+
+		framework.ExpectNoError(err)
+
+		framework.Logf("limit 20M senderSpeed %d recvSpeed %d", senderSpeed, recvSpeed)
+
+		// expect the real speed of iperf3 is in range(18M,24M)
+		framework.ExpectEqual(true, senderSpeed >= 18000000 && senderSpeed <= 26000000)
+	})
+
 })
 
 // Test e2e inter-node connectivity over br-int
