@@ -206,34 +206,36 @@ func NewMasterWatchFactory(ovnClientset *util.OVNClientset) (*WatchFactory, erro
 
 	}
 
-	wf.informers[floatingIPProviderType], err = newInformer(floatingIPProviderType, wf.fipFactory.K8s().V1().FloatingIPProviders().Informer())
-	if err != nil {
-		return nil, err
-	}
-	wf.fipFactory.Start(wf.stopChan)
-	for oType, synced := range wf.fipFactory.WaitForCacheSync(wf.stopChan) {
-		if !synced {
-			return nil, fmt.Errorf("error in syncing cache for %v informer", oType)
+	if config.OVNKubernetesFeature.EnableFloatingIP {
+		wf.informers[floatingIPProviderType], err = newInformer(floatingIPProviderType, wf.fipFactory.K8s().V1().FloatingIPProviders().Informer())
+		if err != nil {
+			return nil, err
 		}
-	}
-	wf.informers[floatingIPClaimType], err = newInformer(floatingIPClaimType, wf.ficFactory.K8s().V1().FloatingIPClaims().Informer())
-	if err != nil {
-		return nil, err
-	}
-	wf.ficFactory.Start(wf.stopChan)
-	for oType, synced := range wf.ficFactory.WaitForCacheSync(wf.stopChan) {
-		if !synced {
-			return nil, fmt.Errorf("error in syncing cache for %v informer", oType)
+		wf.fipFactory.Start(wf.stopChan)
+		for oType, synced := range wf.fipFactory.WaitForCacheSync(wf.stopChan) {
+			if !synced {
+				return nil, fmt.Errorf("error in syncing cache for %v informer", oType)
+			}
 		}
-	}
-	wf.informers[floatingIPType], err = newInformer(floatingIPType, wf.fiFactory.K8s().V1().FloatingIPs().Informer())
-	if err != nil {
-		return nil, err
-	}
-	wf.fiFactory.Start(wf.stopChan)
-	for oType, synced := range wf.fiFactory.WaitForCacheSync(wf.stopChan) {
-		if !synced {
-			return nil, fmt.Errorf("error in syncing cache for %v informer", oType)
+		wf.informers[floatingIPClaimType], err = newInformer(floatingIPClaimType, wf.ficFactory.K8s().V1().FloatingIPClaims().Informer())
+		if err != nil {
+			return nil, err
+		}
+		wf.ficFactory.Start(wf.stopChan)
+		for oType, synced := range wf.ficFactory.WaitForCacheSync(wf.stopChan) {
+			if !synced {
+				return nil, fmt.Errorf("error in syncing cache for %v informer", oType)
+			}
+		}
+		wf.informers[floatingIPType], err = newInformer(floatingIPType, wf.fiFactory.K8s().V1().FloatingIPs().Informer())
+		if err != nil {
+			return nil, err
+		}
+		wf.fiFactory.Start(wf.stopChan)
+		for oType, synced := range wf.fiFactory.WaitForCacheSync(wf.stopChan) {
+			if !synced {
+				return nil, fmt.Errorf("error in syncing cache for %v informer", oType)
+			}
 		}
 	}
 
@@ -316,14 +318,16 @@ func NewNodeWatchFactory(ovnClientset *util.OVNClientset, nodeName string) (*Wat
 		}
 	}
 
-	wf.informers[floatingIPType], err = newQueuedInformer(floatingIPType, wf.fiFactory.K8s().V1().FloatingIPs().Informer(), wf.stopChan)
-	if err != nil {
-		return nil, err
-	}
-	wf.fiFactory.Start(wf.stopChan)
-	for oType, synced := range wf.fiFactory.WaitForCacheSync(wf.stopChan) {
-		if !synced {
-			return nil, fmt.Errorf("error in syncing cache for %v informer", oType)
+	if config.OVNKubernetesFeature.EnableFloatingIP {
+		wf.informers[floatingIPType], err = newQueuedInformer(floatingIPType, wf.fiFactory.K8s().V1().FloatingIPs().Informer(), wf.stopChan)
+		if err != nil {
+			return nil, err
+		}
+		wf.fiFactory.Start(wf.stopChan)
+		for oType, synced := range wf.fiFactory.WaitForCacheSync(wf.stopChan) {
+			if !synced {
+				return nil, fmt.Errorf("error in syncing cache for %v informer", oType)
+			}
 		}
 	}
 

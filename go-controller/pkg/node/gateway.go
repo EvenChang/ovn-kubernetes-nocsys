@@ -259,21 +259,24 @@ func (g *gateway) Init(wf factory.NodeWatchFactory) error {
 		},
 	}, nil)
 
-	wf.AddFloatingIPHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			fip := obj.(*floatingipv1.FloatingIP)
-			g.AddFloatingIP(fip)
-		},
-		UpdateFunc: func(old, new interface{}) {
-			oldFip := old.(*floatingipv1.FloatingIP)
-			newFip := new.(*floatingipv1.FloatingIP)
-			g.UpdateFloatingIP(oldFip, newFip)
-		},
-		DeleteFunc: func(obj interface{}) {
-			fip := obj.(*floatingipv1.FloatingIP)
-			g.DeleteFloatingIP(fip)
-		},
-	}, g.SyncFloatingIP)
+	if config.OVNKubernetesFeature.EnableFloatingIP {
+		wf.AddFloatingIPHandler(cache.ResourceEventHandlerFuncs{
+			AddFunc: func(obj interface{}) {
+				fip := obj.(*floatingipv1.FloatingIP)
+				g.AddFloatingIP(fip)
+			},
+			UpdateFunc: func(old, new interface{}) {
+				oldFip := old.(*floatingipv1.FloatingIP)
+				newFip := new.(*floatingipv1.FloatingIP)
+				g.UpdateFloatingIP(oldFip, newFip)
+			},
+			DeleteFunc: func(obj interface{}) {
+				fip := obj.(*floatingipv1.FloatingIP)
+				g.DeleteFloatingIP(fip)
+			},
+		}, g.SyncFloatingIP)
+	}
+
 	return nil
 }
 

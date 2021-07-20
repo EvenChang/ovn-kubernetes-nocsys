@@ -373,13 +373,15 @@ func (oc *Controller) Run(wg *sync.WaitGroup, nodeName string) error {
 		oc.WatchEgressIP()
 	}
 
-	go oc.fIPPC.Run(oc.stopChan)
-	go oc.fIPCC.Run(oc.stopChan)
-	go oc.fIPNC.Run(oc.stopChan)
-	oc.WatchFloatingIPProvider()
-	oc.WatchFloatingIPNodes()
-	oc.WatchFloatingIPClaim()
-	oc.WatchFloatingIP()
+	if config.OVNKubernetesFeature.EnableFloatingIP {
+		go oc.fIPPC.Run(oc.stopChan)
+		go oc.fIPCC.Run(oc.stopChan)
+		go oc.fIPNC.Run(oc.stopChan)
+		oc.WatchFloatingIPProvider()
+		oc.WatchFloatingIPNodes()
+		oc.WatchFloatingIPClaim()
+		oc.WatchFloatingIP()
+	}
 
 	if config.OVNKubernetesFeature.EnableEgressFirewall {
 		var err error
