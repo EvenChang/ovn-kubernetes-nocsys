@@ -99,7 +99,7 @@ func (o *FakeOVN) start(ctx *cli.Context, objects ...runtime.Object) {
 		EgressFirewallClient:     egressfirewallfake.NewSimpleClientset(egressFirewallObjects...),
 		FloatingIPProviderClient: floatingipproviderfake.NewSimpleClientset(floatingIPProviderObjects...),
 		FloatingIPClaimClient:    floatingipclaimfake.NewSimpleClientset(floatingIPClaimObjects...),
-		FloatingIPClient: floatingipfake.NewSimpleClientset(floatingIPObjects...),
+		FloatingIPClient:         floatingipfake.NewSimpleClientset(floatingIPObjects...),
 	}
 	o.init()
 }
