@@ -1534,10 +1534,16 @@ func TestController_allocateNodeSubnets(t *testing.T) {
 			kubeFakeClient := fake.NewSimpleClientset()
 			egressFirewallFakeClient := &egressfirewallfake.Clientset{}
 			egressIPFakeClient := &egressipfake.Clientset{}
+			fIPFakeClient := &floatingipfake.Clientset{}
+			fIPCFakeClient := &floatingipclaimfake.Clientset{}
+			fIPPFakeClient := &floatingipproviderfake.Clientset{}
 			fakeClient := &util.OVNClientset{
-				KubeClient:           kubeFakeClient,
-				EgressIPClient:       egressIPFakeClient,
-				EgressFirewallClient: egressFirewallFakeClient,
+				KubeClient:               kubeFakeClient,
+				EgressIPClient:           egressIPFakeClient,
+				EgressFirewallClient:     egressFirewallFakeClient,
+				FloatingIPProviderClient: fIPPFakeClient,
+				FloatingIPClaimClient:    fIPCFakeClient,
+				FloatingIPClient:         fIPFakeClient,
 			}
 			f, err := factory.NewMasterWatchFactory(fakeClient)
 

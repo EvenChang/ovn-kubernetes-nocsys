@@ -2,6 +2,9 @@ package factory
 
 import (
 	"fmt"
+	floatingipfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/clientset/versioned/fake"
+	floatingipclaimfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1/apis/clientset/versioned/fake"
+	floatingipproviderfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1/apis/clientset/versioned/fake"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -180,6 +183,9 @@ var _ = Describe("Watch Factory Operations", func() {
 		fakeClient                                *fake.Clientset
 		egressIPFakeClient                        *egressipfake.Clientset
 		egressFirewallFakeClient                  *egressfirewallfake.Clientset
+		fIPFakeClient                             *floatingipfake.Clientset
+		fIPCFakeClient                            *floatingipclaimfake.Clientset
+		fIPPFakeClient                            *floatingipproviderfake.Clientset
 		podWatch, namespaceWatch, nodeWatch       *watch.FakeWatcher
 		policyWatch, endpointsWatch, serviceWatch *watch.FakeWatcher
 		egressFirewallWatch                       *watch.FakeWatcher
@@ -205,11 +211,17 @@ var _ = Describe("Watch Factory Operations", func() {
 		fakeClient = &fake.Clientset{}
 		egressFirewallFakeClient = &egressfirewallfake.Clientset{}
 		egressIPFakeClient = &egressipfake.Clientset{}
+		fIPFakeClient = &floatingipfake.Clientset{}
+		fIPCFakeClient = &floatingipclaimfake.Clientset{}
+		fIPPFakeClient = &floatingipproviderfake.Clientset{}
 
 		ovnClientset = &util.OVNClientset{
-			KubeClient:           fakeClient,
-			EgressIPClient:       egressIPFakeClient,
-			EgressFirewallClient: egressFirewallFakeClient,
+			KubeClient:               fakeClient,
+			EgressIPClient:           egressIPFakeClient,
+			EgressFirewallClient:     egressFirewallFakeClient,
+			FloatingIPProviderClient: fIPPFakeClient,
+			FloatingIPClaimClient:    fIPCFakeClient,
+			FloatingIPClient:         fIPFakeClient,
 		}
 
 		pods = make([]*v1.Pod, 0)

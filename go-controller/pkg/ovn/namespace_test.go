@@ -204,10 +204,16 @@ var _ = ginkgo.Describe("OVN Namespace Operations", func() {
 				)
 				egressFirewallFakeClient := &egressfirewallfake.Clientset{}
 				egressIPFakeClient := &egressipfake.Clientset{}
+				fIPFakeClient := &floatingipfake.Clientset{}
+				fIPCFakeClient := &floatingipclaimfake.Clientset{}
+				fIPPFakeClient := &floatingipproviderfake.Clientset{}
 				fakeClient := &util.OVNClientset{
-					KubeClient:           kubeFakeClient,
-					EgressIPClient:       egressIPFakeClient,
-					EgressFirewallClient: egressFirewallFakeClient,
+					KubeClient:               kubeFakeClient,
+					EgressIPClient:           egressIPFakeClient,
+					EgressFirewallClient:     egressFirewallFakeClient,
+					FloatingIPProviderClient: fIPPFakeClient,
+					FloatingIPClaimClient:    fIPCFakeClient,
+					FloatingIPClient:         fIPFakeClient,
 				}
 
 				_, err := fakeClient.KubeClient.CoreV1().Nodes().Create(context.TODO(), &testNode, metav1.CreateOptions{})

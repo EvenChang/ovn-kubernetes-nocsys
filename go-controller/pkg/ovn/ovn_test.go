@@ -21,6 +21,12 @@ import (
 	egressfirewallfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressfirewall/v1/apis/clientset/versioned/fake"
 	egressip "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1"
 	egressipfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1/apis/clientset/versioned/fake"
+	floatingip "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1"
+	floatingipfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/clientset/versioned/fake"
+	floatingipclaim "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1"
+	floatingipclaimfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1/apis/clientset/versioned/fake"
+	floatingipprovider "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1"
+	floatingipproviderfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1/apis/clientset/versioned/fake"
 )
 
 const (
@@ -66,12 +72,21 @@ func NewFakeOVN(fexec *ovntest.FakeExec) *FakeOVN {
 func (o *FakeOVN) start(ctx *cli.Context, objects ...runtime.Object) {
 	egressIPObjects := []runtime.Object{}
 	egressFirewallObjects := []runtime.Object{}
+	floatingIPObjects := []runtime.Object{}
+	floatingIPClaimObjects := []runtime.Object{}
+	floatingIPProviderObjects := []runtime.Object{}
 	v1Objects := []runtime.Object{}
 	for _, object := range objects {
 		if _, isEgressIPObject := object.(*egressip.EgressIPList); isEgressIPObject {
 			egressIPObjects = append(egressIPObjects, object)
 		} else if _, isEgressFirewallObject := object.(*egressfirewall.EgressFirewallList); isEgressFirewallObject {
 			egressFirewallObjects = append(egressFirewallObjects, object)
+		} else if _, isFloatingIPObject := object.(*floatingip.FloatingIP); isFloatingIPObject {
+			floatingIPObjects = append(floatingIPObjects, object)
+		} else if _, isFloatingIPClaimObject := object.(*floatingipclaim.FloatingIPClaim); isFloatingIPClaimObject {
+			floatingIPClaimObjects = append(floatingIPClaimObjects, object)
+		} else if _, isFloatingIPProviderObject := object.(*floatingipprovider.FloatingIPProvider); isFloatingIPProviderObject {
+			floatingIPProviderObjects = append(floatingIPProviderObjects, object)
 		} else {
 			v1Objects = append(v1Objects, object)
 		}
@@ -79,9 +94,12 @@ func (o *FakeOVN) start(ctx *cli.Context, objects ...runtime.Object) {
 	_, err := config.InitConfig(ctx, o.fakeExec, nil)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	o.fakeClient = &util.OVNClientset{
-		KubeClient:           fake.NewSimpleClientset(v1Objects...),
-		EgressIPClient:       egressipfake.NewSimpleClientset(egressIPObjects...),
-		EgressFirewallClient: egressfirewallfake.NewSimpleClientset(egressFirewallObjects...),
+		KubeClient:               fake.NewSimpleClientset(v1Objects...),
+		EgressIPClient:           egressipfake.NewSimpleClientset(egressIPObjects...),
+		EgressFirewallClient:     egressfirewallfake.NewSimpleClientset(egressFirewallObjects...),
+		FloatingIPProviderClient: floatingipproviderfake.NewSimpleClientset(floatingIPProviderObjects...),
+		FloatingIPClaimClient:    floatingipclaimfake.NewSimpleClientset(floatingIPClaimObjects...),
+		FloatingIPClient: floatingipfake.NewSimpleClientset(floatingIPObjects...),
 	}
 	o.init()
 }

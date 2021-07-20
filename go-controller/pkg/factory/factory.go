@@ -250,6 +250,13 @@ func NewNodeWatchFactory(ovnClientset *util.OVNClientset, nodeName string) (*Wat
 		informers:   make(map[reflect.Type]*informer),
 		stopChan:    make(chan struct{}),
 	}
+	var err error
+
+	err = floatingipapi.AddToScheme(floatingipscheme.Scheme)
+	if err != nil {
+		return nil, err
+	}
+
 	// For Services and Endpoints, pre-populate the shared Informer with one that
 	// has a label selector excluding headless services.
 	wf.iFactory.InformerFor(&kapi.Service{}, func(c kubernetes.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
@@ -282,7 +289,6 @@ func NewNodeWatchFactory(ovnClientset *util.OVNClientset, nodeName string) (*Wat
 			})
 	})
 
-	var err error
 	wf.informers[podType], err = newQueuedInformer(podType, wf.iFactory.Core().V1().Pods().Informer(), wf.stopChan)
 	if err != nil {
 		return nil, err
