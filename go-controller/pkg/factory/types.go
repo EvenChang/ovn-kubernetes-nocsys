@@ -49,6 +49,7 @@ type NodeWatchFactory interface {
 	RemoveFloatingIPClaimHandler(handler *Handler)
 
 	AddFloatingIPProviderHandler(handlerFuncs cache.ResourceEventHandler, processExisting func([]interface{})) *Handler
+	RemoveFloatingIPProviderHandler(handler *Handler)
 }
 
 type Shutdownable interface {

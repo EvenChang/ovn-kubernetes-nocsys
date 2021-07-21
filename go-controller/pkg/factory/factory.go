@@ -591,6 +591,10 @@ func (wf *WatchFactory) AddFloatingIPProviderHandler(handlerFuncs cache.Resource
 	return wf.addHandler(floatingIPProviderType, "", nil, handlerFuncs, processExisting)
 }
 
+func (wf *WatchFactory) RemoveFloatingIPProviderHandler(handler *Handler) {
+	wf.removeHandler(floatingIPProviderType, handler)
+}
+
 // GetPod returns the pod spec given the namespace and pod name
 func (wf *WatchFactory) GetPod(namespace, name string) (*kapi.Pod, error) {
 	podLister := wf.informers[podType].lister.(listers.PodLister)
