@@ -81,11 +81,11 @@ func (o *FakeOVN) start(ctx *cli.Context, objects ...runtime.Object) {
 			egressIPObjects = append(egressIPObjects, object)
 		} else if _, isEgressFirewallObject := object.(*egressfirewall.EgressFirewallList); isEgressFirewallObject {
 			egressFirewallObjects = append(egressFirewallObjects, object)
-		} else if _, isFloatingIPObject := object.(*floatingip.FloatingIP); isFloatingIPObject {
+		} else if _, isFloatingIPObject := object.(*floatingip.FloatingIPList); isFloatingIPObject {
 			floatingIPObjects = append(floatingIPObjects, object)
-		} else if _, isFloatingIPClaimObject := object.(*floatingipclaim.FloatingIPClaim); isFloatingIPClaimObject {
+		} else if _, isFloatingIPClaimObject := object.(*floatingipclaim.FloatingIPClaimList); isFloatingIPClaimObject {
 			floatingIPClaimObjects = append(floatingIPClaimObjects, object)
-		} else if _, isFloatingIPProviderObject := object.(*floatingipprovider.FloatingIPProvider); isFloatingIPProviderObject {
+		} else if _, isFloatingIPProviderObject := object.(*floatingipprovider.FloatingIPProviderList); isFloatingIPProviderObject {
 			floatingIPProviderObjects = append(floatingIPProviderObjects, object)
 		} else {
 			v1Objects = append(v1Objects, object)
