@@ -2,8 +2,11 @@ package factory
 
 import (
 	"fmt"
+	floatingip "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1"
 	floatingipfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/clientset/versioned/fake"
+	floatingipclaim "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1"
 	floatingipclaimfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1/apis/clientset/versioned/fake"
+	floatingipprovider "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1"
 	floatingipproviderfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1/apis/clientset/versioned/fake"
 	"reflect"
 	"sync"
@@ -138,6 +141,43 @@ func newEgressIP(name, namespace string) *egressip.EgressIP {
 
 }
 
+func newFloatingIPProvider(name, namespace string) *floatingipprovider.FloatingIPProvider {
+	return &floatingipprovider.FloatingIPProvider{
+		ObjectMeta: newObjectMeta(name, namespace),
+		Spec: floatingipprovider.FloatingIPProviderSpec{
+			FloatingIPs: []string{
+				"192.168.122.2,192.168.122.10",
+				"192.168.122.20",
+			},
+		},
+	}
+}
+
+func newFloatingIPClaim(name, namespace string) *floatingipclaim.FloatingIPClaim {
+	return &floatingipclaim.FloatingIPClaim{
+		ObjectMeta: newObjectMeta(name, namespace),
+		Spec: floatingipclaim.FloatingIPClaimSpec{
+			Provider: "provider",
+			FloatingIPs: []string{
+				"192.168.122.5,192.168.122.10",
+			},
+		},
+	}
+}
+
+func newFloatingIP(name, namespace string) *floatingip.FloatingIP {
+	return &floatingip.FloatingIP{
+		ObjectMeta: newObjectMeta(name, namespace),
+		Spec: floatingip.FloatingIPSpec{
+			FloatingIPClaim: "claim",
+			Pod:             "pod",
+		},
+		Status: floatingip.FloatingIPStatus{
+			FloatingIP: "192.168.122.6",
+		},
+	}
+}
+
 func objSetup(c *fake.Clientset, objType string, listFn func(core.Action) (bool, runtime.Object, error)) *watch.FakeWatcher {
 	w := watch.NewFake()
 	c.AddWatchReactor(objType, core.DefaultWatchReactor(w, nil))
@@ -153,6 +193,27 @@ func egressFirewallObjSetup(c *egressfirewallfake.Clientset, objType string, lis
 }
 
 func egressIPObjSetup(c *egressipfake.Clientset, objType string, listFn func(core.Action) (bool, runtime.Object, error)) *watch.FakeWatcher {
+	w := watch.NewFake()
+	c.AddWatchReactor(objType, core.DefaultWatchReactor(w, nil))
+	c.AddReactor("list", objType, listFn)
+	return w
+}
+
+func floatingIPProviderObjSetup(c *floatingipproviderfake.Clientset, objType string, listFn func(core.Action) (bool, runtime.Object, error)) *watch.FakeWatcher {
+	w := watch.NewFake()
+	c.AddWatchReactor(objType, core.DefaultWatchReactor(w, nil))
+	c.AddReactor("list", objType, listFn)
+	return w
+}
+
+func floatingIPClaimObjSetup(c *floatingipclaimfake.Clientset, objType string, listFn func(core.Action) (bool, runtime.Object, error)) *watch.FakeWatcher {
+	w := watch.NewFake()
+	c.AddWatchReactor(objType, core.DefaultWatchReactor(w, nil))
+	c.AddReactor("list", objType, listFn)
+	return w
+}
+
+func floatingIPObjSetup(c *floatingipfake.Clientset, objType string, listFn func(core.Action) (bool, runtime.Object, error)) *watch.FakeWatcher {
 	w := watch.NewFake()
 	c.AddWatchReactor(objType, core.DefaultWatchReactor(w, nil))
 	c.AddReactor("list", objType, listFn)
@@ -190,6 +251,9 @@ var _ = Describe("Watch Factory Operations", func() {
 		policyWatch, endpointsWatch, serviceWatch *watch.FakeWatcher
 		egressFirewallWatch                       *watch.FakeWatcher
 		egressIPWatch                             *watch.FakeWatcher
+		floatingIPProviderWatch                   *watch.FakeWatcher
+		floatingIPClaimWatch                      *watch.FakeWatcher
+		floatingIPWatch                           *watch.FakeWatcher
 		pods                                      []*v1.Pod
 		namespaces                                []*v1.Namespace
 		nodes                                     []*v1.Node
@@ -197,6 +261,9 @@ var _ = Describe("Watch Factory Operations", func() {
 		endpoints                                 []*v1.Endpoints
 		services                                  []*v1.Service
 		egressIPs                                 []*egressip.EgressIP
+		floatingIPProviders                       []*floatingipprovider.FloatingIPProvider
+		floatingIPClaims                          []*floatingipclaim.FloatingIPClaim
+		floatingIPs                               []*floatingip.FloatingIP
 		wf                                        *WatchFactory
 		egressFirewalls                           []*egressfirewall.EgressFirewall
 		err                                       error
@@ -207,6 +274,7 @@ var _ = Describe("Watch Factory Operations", func() {
 		// Restore global default values before each testcase
 		config.PrepareTestConfig()
 		config.OVNKubernetesFeature.EnableEgressIP = true
+		config.OVNKubernetesFeature.EnableFloatingIP = true
 
 		fakeClient = &fake.Clientset{}
 		egressFirewallFakeClient = &egressfirewallfake.Clientset{}
@@ -295,6 +363,33 @@ var _ = Describe("Watch Factory Operations", func() {
 			}
 			return true, obj, nil
 		})
+
+		floatingIPProviders = make([]*floatingipprovider.FloatingIPProvider, 0)
+		floatingIPProviderWatch = floatingIPProviderObjSetup(fIPPFakeClient, "floatingipproviders", func(core.Action) (bool, runtime.Object, error) {
+			obj := &floatingipprovider.FloatingIPProviderList{}
+			for _, p := range floatingIPProviders {
+				obj.Items = append(obj.Items, *p)
+			}
+			return true, obj, nil
+		})
+
+		floatingIPClaims = make([]*floatingipclaim.FloatingIPClaim, 0)
+		floatingIPClaimWatch = floatingIPClaimObjSetup(fIPCFakeClient, "floatingipclaims", func(core.Action) (bool, runtime.Object, error) {
+			obj := &floatingipclaim.FloatingIPClaimList{}
+			for _, c := range floatingIPClaims {
+				obj.Items = append(obj.Items, *c)
+			}
+			return true, obj, nil
+		})
+
+		floatingIPs = make([]*floatingip.FloatingIP, 0)
+		floatingIPWatch = floatingIPObjSetup(fIPFakeClient, "floatingips", func(core.Action) (bool, runtime.Object, error) {
+			obj := &floatingip.FloatingIPList{}
+			for _, fip := range floatingIPs {
+				obj.Items = append(obj.Items, *fip)
+			}
+			return true, obj, nil
+		})
 	})
 
 	AfterEach(func() {
@@ -357,6 +452,21 @@ var _ = Describe("Watch Factory Operations", func() {
 		It("is called for each existing egressIP", func() {
 			egressIPs = append(egressIPs, newEgressIP("myEgressIP", "default"))
 			testExisting(egressIPType, "", nil)
+		})
+
+		It("is called for each existing floatingIPProvider", func() {
+			floatingIPProviders = append(floatingIPProviders, newFloatingIPProvider("myFloatingIPProvider", "default"))
+			testExisting(floatingIPProviderType, "", nil)
+		})
+
+		It("is called for each existing floatingIPClaim", func() {
+			floatingIPClaims = append(floatingIPClaims, newFloatingIPClaim("myFloatingIPClaim", "default"))
+			testExisting(floatingIPClaimType, "", nil)
+		})
+
+		It("is called for each existing floatingIP", func() {
+			floatingIPs = append(floatingIPs, newFloatingIP("myFloatingIP", "default"))
+			testExisting(floatingIPType, "", nil)
 		})
 
 		It("is called for each existing pod that matches a given namespace and label", func() {
@@ -439,6 +549,24 @@ var _ = Describe("Watch Factory Operations", func() {
 			egressIPs = append(egressIPs, newEgressIP("myEgressIP1", "default"))
 			testExisting(egressIPType)
 		})
+
+		It("calls ADD for each existing floatingIPProvider", func() {
+			floatingIPProviders = append(floatingIPProviders, newFloatingIPProvider("myFloatingIPProvider", "default"))
+			floatingIPProviders = append(floatingIPProviders, newFloatingIPProvider("myFloatingIPProvider1", "default"))
+			testExisting(floatingIPProviderType)
+		})
+
+		It("calls ADD for each existing floatingIPClaim", func() {
+			floatingIPClaims = append(floatingIPClaims, newFloatingIPClaim("myFloatingIPClaim", "default"))
+			floatingIPClaims = append(floatingIPClaims, newFloatingIPClaim("myFloatingIPClaim1", "default"))
+			testExisting(floatingIPClaimType)
+		})
+
+		It("calls ADD for each existing floatingIP", func() {
+			floatingIPs = append(floatingIPs, newFloatingIP("myFloatingIP", "default"))
+			floatingIPs = append(floatingIPs, newFloatingIP("myFloatingIP1", "default"))
+			testExisting(floatingIPType)
+		})
 	})
 
 	Context("when EgressIP is disabled", func() {
@@ -461,6 +589,29 @@ var _ = Describe("Watch Factory Operations", func() {
 		It("does not contain EgressFirewall informer", func() {
 			config.OVNKubernetesFeature.EnableEgressFirewall = false
 			testExisting(egressFirewallType)
+		})
+	})
+
+	Context("when FloatingIP is disabled", func() {
+		testExisting := func(objType reflect.Type) {
+			wf, err = NewMasterWatchFactory(ovnClientset)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(wf.informers).NotTo(HaveKey(objType))
+		}
+
+		It("does not contain FloatingIPProvider informer", func() {
+			config.OVNKubernetesFeature.EnableFloatingIP = false
+			testExisting(floatingIPProviderType)
+		})
+
+		It("does not contain FloatingIPClaim informer", func() {
+			config.OVNKubernetesFeature.EnableFloatingIP = false
+			testExisting(floatingIPClaimType)
+		})
+
+		It("does not contain FloatingIP informer", func() {
+			config.OVNKubernetesFeature.EnableFloatingIP = false
+			testExisting(floatingIPType)
 		})
 	})
 
@@ -1089,6 +1240,109 @@ var _ = Describe("Watch Factory Operations", func() {
 
 		wf.RemoveEgressIPHandler(h)
 	})
+
+	It("responds to floatingIPProvider add/update/delete events", func() {
+		wf, err = NewMasterWatchFactory(ovnClientset)
+		Expect(err).NotTo(HaveOccurred())
+
+		added := newFloatingIPProvider("myFloatingIPProvider", "default")
+		h, c := addHandler(wf, floatingIPProviderType, cache.ResourceEventHandlerFuncs{
+			AddFunc: func(obj interface{}) {
+				floatingIPProvider := obj.(*floatingipprovider.FloatingIPProvider)
+				Expect(reflect.DeepEqual(floatingIPProvider, added)).To(BeTrue())
+			},
+			UpdateFunc: func(old, new interface{}) {
+				newFloatingIPProvider := new.(*floatingipprovider.FloatingIPProvider)
+				Expect(reflect.DeepEqual(newFloatingIPProvider, added)).To(BeTrue())
+				Expect(newFloatingIPProvider.Spec.FloatingIPs).To(Equal([]string{"192.168.122.20"}))
+			},
+			DeleteFunc: func(obj interface{}) {
+				floatingIPProvider := obj.(*floatingipprovider.FloatingIPProvider)
+				Expect(reflect.DeepEqual(floatingIPProvider, added)).To(BeTrue())
+			},
+		})
+
+		floatingIPProviders = append(floatingIPProviders, added)
+		floatingIPProviderWatch.Add(added)
+		Eventually(c.getAdded, 2).Should(Equal(1))
+		added.Spec.FloatingIPs = []string{"192.168.122.20"}
+		floatingIPProviderWatch.Modify(added)
+		Eventually(c.getUpdated, 2).Should(Equal(1))
+		floatingIPProviders = floatingIPProviders[:0]
+		floatingIPProviderWatch.Delete(added)
+		Eventually(c.getDeleted, 2).Should(Equal(1))
+
+		wf.RemoveFloatingIPProviderHandler(h)
+	})
+
+	It("responds to floatingIPClaim add/update/delete events", func() {
+		wf, err = NewMasterWatchFactory(ovnClientset)
+		Expect(err).NotTo(HaveOccurred())
+
+		added := newFloatingIPClaim("myFloatingClaim", "default")
+		h, c := addHandler(wf, floatingIPClaimType, cache.ResourceEventHandlerFuncs{
+			AddFunc: func(obj interface{}) {
+				floatingIPClaim := obj.(*floatingipclaim.FloatingIPClaim)
+				Expect(reflect.DeepEqual(floatingIPClaim, added)).To(BeTrue())
+			},
+			UpdateFunc: func(old, new interface{}) {
+				newFloatingIPClaim := new.(*floatingipclaim.FloatingIPClaim)
+				Expect(reflect.DeepEqual(newFloatingIPClaim, added)).To(BeTrue())
+				Expect(newFloatingIPClaim.Spec.FloatingIPs).To(Equal([]string{"192.168.122.20"}))
+			},
+			DeleteFunc: func(obj interface{}) {
+				floatingIPClaims := obj.(*floatingipclaim.FloatingIPClaim)
+				Expect(reflect.DeepEqual(floatingIPClaims, added)).To(BeTrue())
+			},
+		})
+
+		floatingIPClaims = append(floatingIPClaims, added)
+		floatingIPClaimWatch.Add(added)
+		Eventually(c.getAdded, 2).Should(Equal(1))
+		added.Spec.FloatingIPs = []string{"192.168.122.20"}
+		floatingIPClaimWatch.Modify(added)
+		Eventually(c.getUpdated, 2).Should(Equal(1))
+		floatingIPClaims = floatingIPClaims[:0]
+		floatingIPClaimWatch.Delete(added)
+		Eventually(c.getDeleted, 2).Should(Equal(1))
+
+		wf.RemoveFloatingIPClaimHandler(h)
+	})
+
+	It("responds to floatingIP add/update/delete events", func() {
+		wf, err = NewMasterWatchFactory(ovnClientset)
+		Expect(err).NotTo(HaveOccurred())
+
+		added := newFloatingIP("myFloatingIP", "default")
+		h, c := addHandler(wf, floatingIPType, cache.ResourceEventHandlerFuncs{
+			AddFunc: func(obj interface{}) {
+				floatingIP := obj.(*floatingip.FloatingIP)
+				Expect(reflect.DeepEqual(floatingIP, added)).To(BeTrue())
+			},
+			UpdateFunc: func(old, new interface{}) {
+				newFloatingIP := new.(*floatingip.FloatingIP)
+				Expect(reflect.DeepEqual(newFloatingIP, added)).To(BeTrue())
+				Expect(newFloatingIP.Spec.FloatingIPClaim)
+			},
+			DeleteFunc: func(obj interface{}) {
+				floatingIP := obj.(*floatingip.FloatingIP)
+				Expect(reflect.DeepEqual(floatingIP, added)).To(BeTrue())
+			},
+		})
+
+		floatingIPs = append(floatingIPs, added)
+		floatingIPWatch.Add(added)
+		Eventually(c.getAdded, 2).Should(Equal(1))
+		added.Status.FloatingIP = "192.168.122.8"
+		floatingIPWatch.Modify(added)
+		Eventually(c.getUpdated, 2).Should(Equal(1))
+		floatingIPs = floatingIPs[:0]
+		floatingIPWatch.Delete(added)
+		Eventually(c.getDeleted, 2).Should(Equal(1))
+
+		wf.RemoveFloatingIPHandler(h)
+	})
+
 	It("stops processing events after the handler is removed", func() {
 		wf, err = NewMasterWatchFactory(ovnClientset)
 		Expect(err).NotTo(HaveOccurred())
