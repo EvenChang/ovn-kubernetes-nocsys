@@ -108,7 +108,7 @@ type floatingIPController struct {
 func newFIPController(ovnClient *util.OVNClientset) *floatingIPController {
 	broadcaster := record.NewBroadcaster()
 	broadcaster.StartStructuredLogging(0)
-	broadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: ovnClient.KubeClient.CoreV1().Events("")})
+	broadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: ovnClient.KubeClient.CoreV1().Events("default")})
 	recorder := broadcaster.NewRecorder(floatingipscheme.Scheme, kapi.EventSource{Component: "fip-controller"})
 
 	return &floatingIPController{

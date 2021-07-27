@@ -885,7 +885,7 @@ func (oc *Controller) WatchFloatingIP() {
 		UpdateFunc: func(old, new interface{}) {
 			oldFIP := old.(*floatingipv1.FloatingIP)
 			newFIP := new.(*floatingipv1.FloatingIP).DeepCopy()
-			if !reflect.DeepEqual(oldFIP.Status.NodeName, newFIP.Status.NodeName) &&
+			if !reflect.DeepEqual(oldFIP.Status.NodeName, newFIP.Status.NodeName) ||
 				!reflect.DeepEqual(oldFIP.Status.FloatingIP, newFIP.Status.FloatingIP) {
 				if oldFIP.Status.NodeName != "" && util.IsIP(oldFIP.Status.FloatingIP) {
 					if err := oc.deleteFloatingIP(oldFIP); err != nil {
