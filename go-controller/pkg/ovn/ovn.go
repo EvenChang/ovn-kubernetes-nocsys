@@ -259,7 +259,7 @@ func NewOvnController(ovnClient *util.OVNClientset, wf *factory.WatchFactory, st
 	}
 	broadcaster := record.NewBroadcaster()
 	broadcaster.StartStructuredLogging(0)
-	broadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: ovnClient.KubeClient.CoreV1().Events("")})
+	broadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: ovnClient.KubeClient.CoreV1().Events("default")})
 
 	kube := &kube.Kube{
 		KClient:              ovnClient.KubeClient,
@@ -380,6 +380,7 @@ func (oc *Controller) Run(wg *sync.WaitGroup, nodeName string) error {
 		oc.WatchFloatingIPProvider()
 		oc.WatchFloatingIPNodes()
 		oc.WatchFloatingIPClaim()
+		oc.WatchFloatingIPForClaim()
 		oc.WatchFloatingIP()
 	}
 
@@ -863,12 +864,6 @@ func (oc *Controller) WatchEgressIP() {
 // back the appropriate handler logic.
 func (oc *Controller) WatchFloatingIP() {
 	oc.watchFactory.AddFloatingIPHandler(cache.ResourceEventHandlerFuncs{
-		DeleteFunc: func(obj interface{}) {
-			oc.fIPCC.deleteFloatingIP(obj)
-		},
-	}, nil)
-
-	oc.watchFactory.AddFloatingIPHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			new := obj.(*floatingipv1.FloatingIP)
 			if new.Status.NodeName == "" || !util.IsIP(new.Status.FloatingIP) {
@@ -910,6 +905,14 @@ func (oc *Controller) WatchFloatingIP() {
 					klog.Error(err)
 				}
 			}
+		},
+	}, nil)
+}
+
+func (oc *Controller) WatchFloatingIPForClaim() {
+	oc.watchFactory.AddFloatingIPHandler(cache.ResourceEventHandlerFuncs{
+		DeleteFunc: func(obj interface{}) {
+			oc.fIPCC.deleteFloatingIP(obj)
 		},
 	}, nil)
 }
