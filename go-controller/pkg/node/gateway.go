@@ -216,7 +216,7 @@ func (g *gateway) updateFloatingIPFlowCache(fip *floatingipv1.FloatingIP, add bo
 		g.openflowManager.deleteFlowsByKey(key)
 	} else {
 		g.openflowManager.updateFlowCacheEntry(key, []string{
-			fmt.Sprintf("cookie=%s, priority=50, table=0,ip,in_port=%s,nw_dst=%s actions=output:%s",
+			fmt.Sprintf("cookie=%s, priority=90, table=0,ip,in_port=%s,nw_dst=%s actions=output:%s",
 				cookie, g.openflowManager.physIntf, status.FloatingIP, g.openflowManager.ofportPatch),
 		})
 	}
