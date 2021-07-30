@@ -2642,3 +2642,339 @@ var _ = ginkgo.Describe("e2e delete databases", func() {
 		singlePodConnectivityTest(f, "after-delete-db-pods")
 	})
 })
+
+var _ = ginkgo.Describe("e2e floating IP validation", func() {
+	const (
+		svcname          string = "floatingip"
+		HTTPPort         string = "8080"
+		providerName     string = svcname + "-" + "provider"
+		claimName        string = svcname + "-" + "claim"
+		externalNodeName string = "external_node"
+		serverNodeName   string = "server_node"
+		providerYaml     string = "provider.yaml"
+		claimYaml        string = "claim.yaml"
+	)
+
+	type node struct {
+		name   string
+		nodeIP string
+	}
+
+	type pod struct {
+		name       string
+		namespace  string
+		floatingIP net.IP
+	}
+
+	var (
+		floatingIP1Node, floatingIP2Node, pod1Node, pod2Node, externalNode, serverNode node
+		pod1Name                                                                       = "e2e-floatingip-pod-1"
+		pod2Name                                                                       = "e2e-floatingip-pod-2"
+		pod1, pod2                                                                     pod
+	)
+
+	podFloatingIPLabel := map[string]string{"wants": "floatingip"}
+	command := []string{"/agnhost", "netexec", fmt.Sprintf("--http-port=%s", HTTPPort)}
+
+	testStatus := func(which string) bool {
+		output, err := framework.RunKubectl("default", "get", which, "-o=jsonpath='{range .items[*]}{.status.phase}{end}'\n")
+		if err != nil {
+			framework.Logf("Failed to get the floating ip provider object: err: %v", err)
+			return false
+		}
+
+		output = strings.Trim(output, " \n")
+		lines := strings.Split(output, "\n")
+		if len(lines) > 1 {
+			framework.Failf("Didn't expect to retrieve more than one floating IP provider during the execution of this test, saw: %v, %v", len(lines), lines)
+		} else if len(lines) == 0 {
+			return false
+		}
+
+		phase := strings.TrimSpace(lines[0])
+		return strings.Trim(phase, "'") == "Ready"
+	}
+
+	// Get the floating IP of the given pod
+	getPodFloatingIP := func(pod *pod) string {
+		output, err := framework.RunKubectl("default", "get", "fi", "-o=jsonpath='{range .items[*]}{.spec.pod}{\"\\t\"}{.spec.podNamespace}{\"\\t\"}{.status.floatingIP}{\"\\n\"}{end}'")
+		if err != nil {
+			framework.Failf("Unable to retrieve the floating IP for pod %s/%s: %v", pod.name, pod.namespace, err)
+			return ""
+		}
+
+		lines := strings.Split(output, "\n")
+		if len(lines) == 0 {
+			framework.Failf("Unable to retrieve the floating IP for pod %s/%s: there is no floating IP", pod.name, pod.namespace)
+			return ""
+		}
+
+		for _, line := range lines {
+			line = strings.Trim(line, "'")
+			fields := strings.Fields(line)
+			if len(fields) != 3 {
+				continue
+			}
+
+			if fields[0] == pod.name && fields[1] == pod.namespace {
+				return fields[2]
+			}
+		}
+
+		return ""
+	}
+
+	targetPodAndTest := func(containerName string, execArgs []string) wait.ConditionFunc {
+		return func() (bool, error) {
+			args := []string{"docker", "exec"}
+			args = append(args, containerName)
+			args = append(args, execArgs...)
+			stdout, err := runCommand(args...)
+			if err != nil {
+				if !strings.Contains(err.Error(), "Connection timed out") {
+					framework.Failf("can not connect to the expected pod, but it did with another error, err: %v", err)
+					return false, err
+				} else {
+					framework.Logf("can not connect to the expected pod, Connection timed out, %v", err)
+				}
+				return false, err
+			}
+			framework.Logf("output: %s", stdout)
+			return true, nil
+		}
+	}
+
+	targetExternalHostAndTest := func(target node, podName, podNamespace string, verifyIPs []string) wait.ConditionFunc {
+		return func() (bool, error) {
+			_, err := framework.RunKubectl(podNamespace, "exec", podName, "--", "curl", "--connect-timeout", "2", net.JoinHostPort(target.nodeIP, "80"))
+			if err != nil {
+				if !strings.Contains(err.Error(), "Connection timed out") {
+					framework.Failf("can not connect to the test expected netserver container, but it did with another error, err: %v", err)
+				} else {
+					framework.Logf("can not connect to the test expected netserver container, Connection timed out, %v", err)
+				}
+				return false, err
+			}
+			targetNodeLogs, err := runCommand("docker", "logs", target.name)
+			if err != nil {
+				framework.Logf("failed to inspect logs in test container: %v", err)
+				return false, nil
+			}
+			targetNodeLogs = strings.TrimSuffix(targetNodeLogs, "\n")
+			logLines := strings.Split(targetNodeLogs, "\n")
+			lastLine := logLines[len(logLines)-1]
+			var found bool
+			for _, verifyIP := range verifyIPs {
+				if strings.Contains(lastLine, verifyIP) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				framework.Logf("the test external container did not have any trace of the IPs: %v being logged, last logs: %s", verifyIPs, lastLine)
+				return false, nil
+			}
+
+			return true, nil
+		}
+	}
+
+	f := framework.NewDefaultFramework(svcname)
+
+	// Determine which node the CI is running in and get relevant endpoint information for the tests
+	ginkgo.BeforeEach(func() {
+		nodes, err := e2enode.GetBoundedReadySchedulableNodes(f.ClientSet, 2)
+		framework.ExpectNoError(err)
+		if len(nodes.Items) < 2 {
+			framework.Failf("Test requires >= 2 Ready nodes, but there are only %v nodes", len(nodes.Items))
+		}
+		ips := e2enode.CollectAddresses(nodes, v1.NodeInternalIP)
+		floatingIP1Node = node{
+			name:   nodes.Items[0].Name,
+			nodeIP: ips[0],
+		}
+		floatingIP2Node = node{
+			name:   nodes.Items[0].Name,
+			nodeIP: ips[0],
+		}
+		pod1Node = node{
+			name:   nodes.Items[0].Name,
+			nodeIP: ips[0],
+		}
+		pod2Node = node{
+			name:   nodes.Items[1].Name,
+			nodeIP: ips[1],
+		}
+		externalNode = node{
+			name: externalNodeName,
+		}
+		serverNode = node{
+			name: serverNodeName,
+		}
+		pod1 = pod{
+			name: pod1Name,
+		}
+		pod2 = pod{
+			name: pod2Name,
+		}
+		if utilnet.IsIPv6String(floatingIP1Node.nodeIP) {
+			_, externalNode.nodeIP = createClusterExternalContainer(externalNode.name, agnhostImage, []string{"--network", ciNetworkName, "-P"}, []string{})
+			_, serverNode.nodeIP = createClusterExternalContainer(serverNode.name, "docker.io/httpd", []string{"--network", ciNetworkName, "-P"}, []string{})
+		} else {
+			externalNode.nodeIP, _ = createClusterExternalContainer(externalNode.name, agnhostImage, []string{"--network", ciNetworkName, "-P"}, []string{})
+			serverNode.nodeIP, _ = createClusterExternalContainer(serverNode.name, "docker.io/httpd", []string{"--network", ciNetworkName, "-P"}, []string{})
+		}
+	})
+
+	ginkgo.AfterEach(func() {
+		framework.RunKubectlOrDie("", "delete", "fic", claimName)
+		framework.RunKubectlOrDie("", "delete", "fip", providerName)
+		framework.RunKubectlOrDie("default", "label", "node", floatingIP1Node.name, "k8s.ovn.org/floatingip-assignable-")
+		framework.RunKubectlOrDie("default", "label", "node", floatingIP2Node.name, "k8s.ovn.org/floatingip-assignable-")
+		deleteClusterExternalContainer(externalNode.name)
+		deleteClusterExternalContainer(serverNode.name)
+	})
+
+	ginkgo.It("Should validate the floating IP functionality against remote hosts", func() {
+
+		ginkgo.By("0. Add the \"k8s.ovn.org/floatingip-assignable\" label to two nodes")
+		framework.AddOrUpdateLabelOnNode(f.ClientSet, floatingIP1Node.name, "k8s.ovn.org/floatingip-assignable", "dummy")
+		framework.AddOrUpdateLabelOnNode(f.ClientSet, floatingIP2Node.name, "k8s.ovn.org/floatingip-assignable", "dummy")
+
+		podNamespace := f.Namespace
+		podNamespace.Labels = map[string]string{
+			"name": f.Namespace.Name,
+		}
+		updateNamespace(f, podNamespace)
+
+		ginkgo.By("1. Create a FloatingIPProvider object")
+		dupIP := func(ip net.IP) net.IP {
+			dup := make(net.IP, len(ip))
+			copy(dup, ip)
+			return dup
+		}
+		// Assign the floating IP without conflicting with any node IP,
+		// the kind subnet is /16 or /64 so the following should be fine.
+		floatingNodeIP := net.ParseIP(floatingIP2Node.nodeIP)
+		floatingIP1 := dupIP(floatingNodeIP)
+		floatingIP1[len(floatingIP1)-2]++
+		floatingIP2 := dupIP(floatingNodeIP)
+		floatingIP2[len(floatingIP2)-2]++
+		floatingIP2[len(floatingIP2)-1]++
+
+		var providerConfig = fmt.Sprintf(`apiVersion: k8s.ovn.org/v1
+kind: FloatingIPProvider
+metadata:
+    name: ` + providerName + `
+spec:
+    floatingIPs:
+    - ` + floatingIP1.String() + `
+    - ` + floatingIP2.String() + `
+    vpcSelector:
+        matchLabels:
+            name: e2e
+`)
+		if err := ioutil.WriteFile(providerYaml, []byte(providerConfig), 0644); err != nil {
+			framework.Failf("Unable to write CRD config to disk: %v", err)
+		}
+		defer func() {
+			if err := os.Remove(providerYaml); err != nil {
+				framework.Logf("Unable to remove the CRD config from disk: %v", err)
+			}
+		}()
+
+		framework.Logf("Create the FloatingIPProvider configuration")
+		framework.RunKubectlOrDie("default", "create", "-f", providerYaml)
+
+		err := wait.PollImmediate(retryInterval, retryTimeout, func() (bool, error) {
+			ready := testStatus("fip")
+			if ready != true {
+				return false, nil
+			}
+			return true, nil
+		})
+		framework.ExpectNoError(err, "Step 1. Create a FloatingIPProvider object, failed, retry time out and the status of provider is not ready")
+
+		ginkgo.By("2. Create a FloatingIPClaim object")
+		var claimConfig = fmt.Sprintf(`apiVersion: k8s.ovn.org/v1
+kind: FloatingIPClaim
+metadata:
+    name: ` + claimName + `
+spec:
+    provider: ` + providerName + `
+    floatingIPs:
+    - ` + floatingIP1.String() + `
+    - ` + floatingIP2.String() + `
+    namespaceSelector:
+        matchExpressions:
+        - {key: name, operator: In, values: [ ` + f.Namespace.Name + `]}
+    podSelector:
+        matchLabels:
+            wants: floatingip
+`)
+		if err := ioutil.WriteFile(claimYaml, []byte(claimConfig), 0644); err != nil {
+			framework.Failf("Unable to write CRD config to disk: %v", err)
+		}
+		defer func() {
+			if err := os.Remove(claimYaml); err != nil {
+				framework.Logf("Unable to remove the CRD config from disk: %v", err)
+			}
+		}()
+
+		framework.Logf("Create the FloatingIPClaim configuration")
+		framework.RunKubectlOrDie("default", "create", "-f", claimYaml)
+
+		err = wait.PollImmediate(retryInterval, retryTimeout, func() (bool, error) {
+			ready := testStatus("fic")
+			if ready != true {
+				return false, nil
+			}
+			return true, nil
+		})
+		framework.ExpectNoError(err, "Step 2. Create a FloatingIPClaim object, failed, retry time out and the status of claim is not ready")
+
+		ginkgo.By("3. Create two pods matching the FloatingIPClaim: one running on each of the floatingIP nodes")
+		createGenericPodWithLabel(f, pod1Name, pod1Node.name, f.Namespace.Name, command, podFloatingIPLabel)
+		pod1.namespace = f.Namespace.Name
+		createGenericPodWithLabel(f, pod2Name, pod2Node.name, f.Namespace.Name, command, podFloatingIPLabel)
+		pod2.namespace = f.Namespace.Name
+
+		err = wait.PollImmediate(retryInterval, retryTimeout, func() (bool, error) {
+			for _, podName := range []string{pod1Name, pod2Name} {
+				kubectlOut := getPodAddress(podName, f.Namespace.Name)
+				srcIP := net.ParseIP(kubectlOut)
+				if srcIP == nil {
+					return false, nil
+				}
+			}
+			return true, nil
+		})
+		framework.ExpectNoError(err, "Step 3. Create two pods matching the FloatingIPClaim: one running on each of the floatingIP nodes, failed, err: %v", err)
+
+		ginkgo.By("Check that the floating ip is assigned to pods")
+		err = wait.PollImmediate(retryInterval, retryTimeout, func() (bool, error) {
+			for _, p := range []*pod{&pod1, &pod2} {
+				fipOut := getPodFloatingIP(p)
+				ip := net.ParseIP(fipOut)
+				if ip == nil {
+					return false, nil
+				}
+				p.floatingIP = ip
+			}
+			return true, nil
+		})
+		framework.ExpectNoError(err, "Step 3. Create two pods matching the FloatingIPClaim: one running on each of the floatingIP nodes, failed, the floating ip does not assigned proper")
+
+		ginkgo.By("4. Check connectivity from external \"node\" to both pods via floating IP")
+		toPod1Command := []string{"curl", "--connect-timeout", "2", fmt.Sprintf("%s/hostname", net.JoinHostPort(pod1.floatingIP.String(), HTTPPort))}
+		err = wait.PollImmediate(retryInterval, retryTimeout, targetPodAndTest(externalNode.name, toPod1Command))
+		framework.ExpectNoError(err, "Step 4. Check connectivity from external \"node\" to pod %s %v", pod1.name, err)
+		toPod2Command := []string{"curl", "--connect-timeout", "2", fmt.Sprintf("%s/hostname", net.JoinHostPort(pod2.floatingIP.String(), HTTPPort))}
+		err = wait.PollImmediate(retryInterval, retryTimeout, targetPodAndTest(externalNode.name, toPod2Command))
+		framework.ExpectNoError(err, "Step 4. Check connectivity from external \"node\" to pod %s %v", pod2.name, err)
+
+		ginkgo.By("5. Check connectivity from both pods to an external \"node\" and verify that the IP is the floating IP")
+		err = wait.PollImmediate(retryInterval, 20*retryTimeout, targetExternalHostAndTest(serverNode, pod1.name, pod1.namespace, []string{pod1.floatingIP.String()}))
+		framework.ExpectNoError(err, "Step 5. Check connectivity from both pods to an external \"node\" and verify that the IP is the floating IP, failed, %v", err)
+	})
+})
