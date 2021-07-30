@@ -2974,7 +2974,9 @@ spec:
 		framework.ExpectNoError(err, "Step 4. Check connectivity from external \"node\" to pod %s %v", pod2.name, err)
 
 		ginkgo.By("5. Check connectivity from both pods to an external \"node\" and verify that the IP is the floating IP")
-		err = wait.PollImmediate(retryInterval, 20*retryTimeout, targetExternalHostAndTest(serverNode, pod1.name, pod1.namespace, []string{pod1.floatingIP.String()}))
-		framework.ExpectNoError(err, "Step 5. Check connectivity from both pods to an external \"node\" and verify that the IP is the floating IP, failed, %v", err)
+		err = wait.PollImmediate(retryInterval, retryTimeout, targetExternalHostAndTest(serverNode, pod1.name, pod1.namespace, []string{pod1.floatingIP.String()}))
+		framework.ExpectNoError(err, "Step 5. Check connectivity from both pods to an external \"node\" and verify that the IP is the floating IP assigned to the pod, failed, %v", err)
+		err = wait.PollImmediate(retryInterval, retryTimeout, targetExternalHostAndTest(serverNode, pod2.name, pod2.namespace, []string{pod2.floatingIP.String()}))
+		framework.ExpectNoError(err, "Step 5. Check connectivity from both pods to an external \"node\" and verify that the IP is the floating IP assigned to the pod, failed, %v", err)
 	})
 })
