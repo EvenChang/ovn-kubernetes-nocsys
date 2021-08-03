@@ -31,6 +31,7 @@ const (
 
 func newLocalGateway(nodeName string, hostSubnets []*net.IPNet, gwNextHops []net.IP, gwIntf string, nodeAnnotator kube.Annotator, recorder record.EventRecorder, cfg *managementPortConfig) (*gateway, error) {
 	gw := &gateway{}
+	gw.nodeName = nodeName
 	var gatewayIfAddrs []*net.IPNet
 	for _, hostSubnet := range hostSubnets {
 		// local gateway mode uses mp0 as default path for all ingress traffic into OVN

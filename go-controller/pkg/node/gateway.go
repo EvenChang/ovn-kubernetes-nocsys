@@ -2,10 +2,14 @@ package node
 
 import (
 	"fmt"
+	"hash/fnv"
 	"net"
+	"reflect"
+	"strings"
 	"sync"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
+	floatingipv1 "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/factory"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/informer"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/kube"
@@ -40,6 +44,7 @@ type gateway struct {
 	nodeIPManager    *addressManager
 	initFunc         func() error
 	readyFunc        func() (bool, error)
+	nodeName         string
 }
 
 func (g *gateway) AddService(svc *kapi.Service) {
@@ -120,6 +125,103 @@ func (g *gateway) DeleteEndpoints(ep *kapi.Endpoints) {
 	}
 }
 
+func (g *gateway) AddFloatingIP(fip *floatingipv1.FloatingIP) {
+	if strings.Compare(fip.Status.NodeName, g.nodeName) != 0 {
+		klog.V(5).Infof("Skipping Floating IP creating for: %v which is not assigned to this node", fip)
+		return
+	}
+
+	if !util.IsIP(fip.Status.FloatingIP) {
+		klog.V(5).Infof("Skipping Floating IP creating for: %v which is not assign floating ip", fip)
+		return
+	}
+	g.updateFloatingIPFlowCache(fip, true)
+	g.openflowManager.requestFlowSync()
+}
+
+func (g *gateway) UpdateFloatingIP(old, new *floatingipv1.FloatingIP) {
+	if strings.Compare(new.Status.NodeName, g.nodeName) != 0 && strings.Compare(old.Status.NodeName, g.nodeName) != 0 {
+		klog.V(5).Infof("Skipping Floating IP updating for: %v which is not assigned to this node", new)
+		return
+	}
+
+	if reflect.DeepEqual(new.Spec.Pod, old.Spec.Pod) &&
+		reflect.DeepEqual(new.Spec.PodNamespace, old.Spec.PodNamespace) &&
+		reflect.DeepEqual(new.Status.NodeName, old.Status.NodeName) &&
+		reflect.DeepEqual(new.Status.FloatingIP, old.Status.FloatingIP) {
+		klog.V(5).Infof("Skipping Floating IP updating for: %s as change does not apply to any of"+
+			".Spec.Pod, .Spec.PodNamespace, .Status.NodeName, .Status.FloatingIP", new.Name)
+		return
+	}
+
+	if strings.Compare(old.Status.NodeName, g.nodeName) == 0 && util.IsIP(old.Status.FloatingIP) {
+		g.updateFloatingIPFlowCache(old, false)
+	}
+	if strings.Compare(new.Status.NodeName, g.nodeName) == 0 && util.IsIP(new.Status.FloatingIP) {
+		g.updateFloatingIPFlowCache(new, true)
+	}
+	g.openflowManager.requestFlowSync()
+}
+
+func (g *gateway) SyncFloatingIP(objs []interface{}) {
+	for _, floatingIPInterface := range objs {
+		fip, ok := floatingIPInterface.(*floatingipv1.FloatingIP)
+		if !ok {
+			klog.Errorf("Spurious object in sync Floating IP: %v", floatingIPInterface)
+			continue
+		}
+
+		if strings.Compare(fip.Status.NodeName, g.nodeName) != 0 {
+			klog.V(5).Infof("Skipping Floating IP syncing for: %v which is not assigned to this node", fip)
+			continue
+		}
+
+		if !util.IsIP(fip.Status.FloatingIP) {
+			klog.V(5).Infof("Skip Floating IP creating for: %v which is not assigned floating ip", fip)
+			continue
+		}
+
+		g.updateFloatingIPFlowCache(fip, true)
+	}
+	g.openflowManager.requestFlowSync()
+}
+
+func (g *gateway) DeleteFloatingIP(fip *floatingipv1.FloatingIP) {
+	if strings.Compare(fip.Status.NodeName, g.nodeName) != 0 {
+		klog.V(5).Infof("Skipping Floating IP deleting for: %v which is not assigned to this node", fip)
+		return
+	}
+
+	if !util.IsIP(fip.Status.FloatingIP) {
+		klog.V(5).Infof("Skipping Floating IP delete for: %v which is not create", fip)
+		return
+	}
+	g.updateFloatingIPFlowCache(fip, false)
+	g.openflowManager.requestFlowSync()
+}
+
+func (g *gateway) updateFloatingIPFlowCache(fip *floatingipv1.FloatingIP, add bool) {
+	var cookie, key string
+	var err error
+
+	status := fip.Status
+	cookie, err = FloatingIPToCookie(status.NodeName, fip.Spec.Pod, status.FloatingIP)
+	if err != nil {
+		klog.Warningf("Unable to generate cookie for FloatingI: %s, %s, %s, error: %v",
+			status.NodeName, fip.Spec.Pod, status.FloatingIP)
+		cookie = "0"
+	}
+	key = strings.Join([]string{"FloatingIP", status.NodeName, fip.Spec.Pod, status.FloatingIP}, "_")
+	if !add {
+		g.openflowManager.deleteFlowsByKey(key)
+	} else {
+		g.openflowManager.updateFlowCacheEntry(key, []string{
+			fmt.Sprintf("cookie=%s, priority=90, table=0,ip,in_port=%s,nw_dst=%s actions=output:%s",
+				cookie, g.openflowManager.physIntf, status.FloatingIP, g.openflowManager.ofportPatch),
+		})
+	}
+}
+
 func (g *gateway) Init(wf factory.NodeWatchFactory) error {
 	err := g.initFunc()
 	if err != nil {
@@ -156,6 +258,25 @@ func (g *gateway) Init(wf factory.NodeWatchFactory) error {
 			g.DeleteEndpoints(ep)
 		},
 	}, nil)
+
+	if config.OVNKubernetesFeature.EnableFloatingIP {
+		wf.AddFloatingIPHandler(cache.ResourceEventHandlerFuncs{
+			AddFunc: func(obj interface{}) {
+				fip := obj.(*floatingipv1.FloatingIP)
+				g.AddFloatingIP(fip)
+			},
+			UpdateFunc: func(old, new interface{}) {
+				oldFip := old.(*floatingipv1.FloatingIP)
+				newFip := new.(*floatingipv1.FloatingIP)
+				g.UpdateFloatingIP(oldFip, newFip)
+			},
+			DeleteFunc: func(obj interface{}) {
+				fip := obj.(*floatingipv1.FloatingIP)
+				g.DeleteFloatingIP(fip)
+			},
+		}, g.SyncFloatingIP)
+	}
+
 	return nil
 }
 
@@ -268,6 +389,17 @@ func gatewayReady(patchPort string) (bool, error) {
 
 func (g *gateway) GetGatewayBridgeIface() string {
 	return g.openflowManager.gwBridge
+}
+
+func FloatingIPToCookie(node string, pod string, ip string) (string, error) {
+	id := fmt.Sprintf("%s%s%s", node, pod, ip)
+	h := fnv.New64a()
+	_, err := h.Write([]byte(id))
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("0x%x", h.Sum64()), nil
 }
 
 // getMaxFrameLength returns the maximum frame size (ignoring VLAN header) that a gateway can handle

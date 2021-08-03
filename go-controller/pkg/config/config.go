@@ -265,6 +265,7 @@ type KubernetesConfig struct {
 type OVNKubernetesFeatureConfig struct {
 	EnableEgressIP       bool `gcfg:"enable-egress-ip"`
 	EnableEgressFirewall bool `gcfg:"enable-egress-firewall"`
+	EnableFloatingIP     bool `gcfg:"enable-floating-ip"`
 }
 
 // GatewayMode holds the node gateway mode
@@ -742,6 +743,12 @@ var OVNK8sFeatureFlags = []cli.Flag{
 		Usage:       "Configure to use EgressFirewall CRD feature with ovn-kubernetes.",
 		Destination: &cliConfig.OVNKubernetesFeature.EnableEgressFirewall,
 		Value:       OVNKubernetesFeature.EnableEgressFirewall,
+	},
+	&cli.BoolFlag{
+		Name:        "enable-floating-ip",
+		Usage:       "Configure to use FloatingIP CRD feature with ovn-kubernetes.",
+		Destination: &cliConfig.OVNKubernetesFeature.EnableFloatingIP,
+		Value:       OVNKubernetesFeature.EnableFloatingIP,
 	},
 }
 

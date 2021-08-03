@@ -14,6 +14,10 @@ import (
 
 	egressiplister "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1/apis/listers/egressip/v1"
 
+	floatingiplister "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/listers/floatingip/v1"
+	floatingipclaimlister "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1/apis/listers/floatingipclaim/v1"
+	floatingipproviderlister "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1/apis/listers/floatingipprovider/v1"
+
 	listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
@@ -313,6 +317,12 @@ func newInformerLister(oType reflect.Type, sharedInformer cache.SharedIndexInfor
 		return egressfirewalllister.NewEgressFirewallLister(sharedInformer.GetIndexer()), nil
 	case egressIPType:
 		return egressiplister.NewEgressIPLister(sharedInformer.GetIndexer()), nil
+	case floatingIPProviderType:
+		return floatingipproviderlister.NewFloatingIPProviderLister(sharedInformer.GetIndexer()), nil
+	case floatingIPClaimType:
+		return floatingipclaimlister.NewFloatingIPClaimLister(sharedInformer.GetIndexer()), nil
+	case floatingIPType:
+		return floatingiplister.NewFloatingIPLister(sharedInformer.GetIndexer()), nil
 	}
 
 	return nil, fmt.Errorf("cannot create lister from type %v", oType)

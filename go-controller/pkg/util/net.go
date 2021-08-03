@@ -289,3 +289,8 @@ func MatchAllIPStringFamily(isIPv6 bool, ipStrings []string) ([]string, error) {
 	}
 	return nil, NoIPError
 }
+
+// IsIP to validate whether a string is valid for IP address or not
+func IsIP(ip string) bool {
+	return net.ParseIP(ip) != nil
+}

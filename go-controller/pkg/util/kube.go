@@ -24,6 +24,9 @@ import (
 
 	egressfirewallclientset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressfirewall/v1/apis/clientset/versioned"
 	egressipclientset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1/apis/clientset/versioned"
+	floatingipclientset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/clientset/versioned"
+	floatingipclaimclientset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipclaim/v1/apis/clientset/versioned"
+	floatingipproviderclientset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingipprovider/v1/apis/clientset/versioned"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/cni/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
@@ -31,9 +34,12 @@ import (
 
 // OVNClientset is a wrapper around all clientsets used by OVN-Kubernetes
 type OVNClientset struct {
-	KubeClient           kubernetes.Interface
-	EgressIPClient       egressipclientset.Interface
-	EgressFirewallClient egressfirewallclientset.Interface
+	KubeClient               kubernetes.Interface
+	EgressIPClient           egressipclientset.Interface
+	EgressFirewallClient     egressfirewallclientset.Interface
+	FloatingIPProviderClient floatingipproviderclientset.Interface
+	FloatingIPClaimClient    floatingipclaimclientset.Interface
+	FloatingIPClient         floatingipclientset.Interface
 }
 
 func adjustCommit() string {
@@ -129,10 +135,25 @@ func NewOVNClientset(conf *config.KubernetesConfig) (*OVNClientset, error) {
 	if err != nil {
 		return nil, err
 	}
+	floatingIPProviderClientset, err := floatingipproviderclientset.NewForConfig(kconfig)
+	if err != nil {
+		return nil, err
+	}
+	floatingIPClaimClientset, err := floatingipclaimclientset.NewForConfig(kconfig)
+	if err != nil {
+		return nil, err
+	}
+	floatingIPClientset, err := floatingipclientset.NewForConfig(kconfig)
+	if err != nil {
+		return nil, err
+	}
 	return &OVNClientset{
-		KubeClient:           kclientset,
-		EgressIPClient:       egressIPClientset,
-		EgressFirewallClient: egressFirewallClientset,
+		KubeClient:               kclientset,
+		EgressIPClient:           egressIPClientset,
+		EgressFirewallClient:     egressFirewallClientset,
+		FloatingIPProviderClient: floatingIPProviderClientset,
+		FloatingIPClaimClient:    floatingIPClaimClientset,
+		FloatingIPClient:         floatingIPClientset,
 	}, nil
 }
 

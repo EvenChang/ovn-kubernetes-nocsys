@@ -1,6 +1,7 @@
 package node
 
 import (
+	floatingipfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/clientset/versioned/fake"
 	"sync"
 
 	. "github.com/onsi/gomega"
@@ -46,7 +47,8 @@ func (o *FakeOVNNode) start(ctx *cli.Context, objects ...runtime.Object) {
 	Expect(err).NotTo(HaveOccurred())
 
 	o.fakeClient = &util.OVNClientset{
-		KubeClient: fake.NewSimpleClientset(v1Objects...),
+		KubeClient:       fake.NewSimpleClientset(v1Objects...),
+		FloatingIPClient: &floatingipfake.Clientset{},
 	}
 	o.init()
 }

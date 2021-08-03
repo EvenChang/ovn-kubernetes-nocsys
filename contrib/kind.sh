@@ -484,6 +484,7 @@ create_ovn_kube_manifests() {
     --ovn-loglevel-nbctld="${OVN_LOG_LEVEL_NBCTLD}" \
     --egress-ip-enable=true \
     --egress-firewall-enable=true \
+    --floating-ip-enable=true \
     --v4-join-subnet="${JOIN_SUBNET_IPV4}" \
     --v6-join-subnet="${JOIN_SUBNET_IPV6}"
   popd
@@ -497,6 +498,9 @@ install_ovn() {
   pushd ../dist/yaml
   run_kubectl apply -f k8s.ovn.org_egressfirewalls.yaml
   run_kubectl apply -f k8s.ovn.org_egressips.yaml
+  run_kubectl apply -f k8s.ovn.org_floatingipproviders.yaml
+  run_kubectl apply -f k8s.ovn.org_floatingipclaims.yaml
+  run_kubectl apply -f k8s.ovn.org_floatingips.yaml
   run_kubectl apply -f ovn-setup.yaml
   MASTER_NODES=$(kind get nodes --name "${KIND_CLUSTER_NAME}" | sort | head -n "${KIND_NUM_MASTER}")
   # We want OVN HA not Kubernetes HA

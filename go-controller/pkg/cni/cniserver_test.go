@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	floatingipfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/floatingip/v1/apis/clientset/versioned/fake"
 	"io/ioutil"
 	"k8s.io/client-go/kubernetes"
 	"net"
@@ -83,7 +84,7 @@ func TestCNIServer(t *testing.T) {
 	socketPath := filepath.Join(tmpDir, serverSocketName)
 	fakeClient := fake.NewSimpleClientset()
 
-	fakeClientset := &util.OVNClientset{KubeClient: fakeClient}
+	fakeClientset := &util.OVNClientset{KubeClient: fakeClient, FloatingIPClient: &floatingipfake.Clientset{}}
 	wf, err := factory.NewNodeWatchFactory(fakeClientset, nodeName)
 	if err != nil {
 		t.Fatalf("failed to create watch factory: %v", err)
@@ -279,7 +280,7 @@ func TestCNIServerCancelAdd(t *testing.T) {
 		},
 	)
 
-	fakeClientset := &util.OVNClientset{KubeClient: fakeClient}
+	fakeClientset := &util.OVNClientset{KubeClient: fakeClient, FloatingIPClient: &floatingipfake.Clientset{}}
 	wf, err := factory.NewNodeWatchFactory(fakeClientset, nodeName)
 	if err != nil {
 		t.Fatalf("failed to create watch factory: %v", err)

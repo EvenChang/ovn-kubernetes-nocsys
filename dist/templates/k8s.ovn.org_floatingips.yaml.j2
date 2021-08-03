@@ -1,0 +1,105 @@
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.5.0
+  creationTimestamp: null
+  name: floatingips.k8s.ovn.org
+spec:
+  group: k8s.ovn.org
+  names:
+    kind: FloatingIP
+    listKind: FloatingIPList
+    plural: floatingips
+    shortNames:
+    - fi
+    singular: floatingip
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.floatingIPClaim
+      name: FloatingIPClaim
+      type: string
+    - jsonPath: .spec.podNamespace
+      name: Namespace
+      type: string
+    - jsonPath: .spec.pod
+      name: Pod
+      type: string
+    - jsonPath: .status.nodeName
+      name: Node
+      type: string
+    - jsonPath: .status.floatingIP
+      name: FloatingIP
+      type: string
+    - jsonPath: .status.phase
+      name: Status
+      type: string
+    name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Specification of the desired behavior of FloatingIPClaim.
+            properties:
+              floatingIPClaim:
+                description: floating ip claim name
+                type: string
+              pod:
+                description: Pod assigned to floating ip
+                type: string
+              podNamespace:
+                description: PodNamespace is namespace of the pod assigned to floating
+                  ip
+                type: string
+            required:
+            - floatingIPClaim
+            - pod
+            type: object
+          status:
+            description: Observed status of FloatingIP. Read-only.
+            properties:
+              HostNetWork:
+                description: Use the host's network
+                type: boolean
+              floatingIP:
+                description: Assigned floating ip address
+                type: string
+              nodeName:
+                description: Node assigned to floating ip
+                type: string
+              phase:
+                description: The phase of a floating ip.
+                type: string
+              podIPs:
+                description: The IP addresses of pod
+                items:
+                  type: string
+                type: array
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []

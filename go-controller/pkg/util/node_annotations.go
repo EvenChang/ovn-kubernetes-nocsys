@@ -59,6 +59,9 @@ const (
 	// OvnNodeEgressLabel is a user assigned node label indicating to ovn-kubernetes that the node is to be used for egress IP assignment
 	ovnNodeEgressLabel = "k8s.ovn.org/egress-assignable"
 
+	// OvnNodeFloatingIPLabel is a user assigned node label indicating to ovn-kubernetes that the node is to be used for floating ip assignment
+	ovnNodeFloatingIPLabel = "k8s.ovn.org/floatingip-assignable"
+
 	// ovnNodeHostAddresses is used to track the different host IP addresses on the node
 	ovnNodeHostAddresses = "k8s.ovn.org/host-addresses"
 )
@@ -288,6 +291,10 @@ func ParseNodePrimaryIfAddr(node *kapi.Node) (string, string, error) {
 // GetNodeEgressLabel returns label annotation needed for marking nodes as egress assignable
 func GetNodeEgressLabel() string {
 	return ovnNodeEgressLabel
+}
+
+func GetNodeFloatingIPLabel() string {
+	return ovnNodeFloatingIPLabel
 }
 
 func SetNodeHostAddresses(nodeAnnotator kube.Annotator, addresses sets.String) error {
