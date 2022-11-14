@@ -60,6 +60,7 @@ func (_ ovnkubeMasterLeaderMetricsProvider) NewLeaderMetric() leaderelection.Swi
 
 // Start waits until this process is the leader before starting master functions
 func (oc *Controller) Start(nodeName string, wg *sync.WaitGroup, ctx context.Context) error {
+	klog.Infof("Even already modify this.")
 	// Set up leader election process first
 	rl, err := resourcelock.New(
 		resourcelock.ConfigMapsResourceLock,
@@ -247,7 +248,8 @@ func (oc *Controller) enableOVNLogicalDatapathGroups() error {
 // Upon deletion of a node, the switch will be deleted
 //
 // TODO: Verify that the cluster was not already called with a different global subnet
-//  If true, then either quit or perform a complete reconfiguration of the cluster (recreate switches/routers with new subnet values)
+//
+//	If true, then either quit or perform a complete reconfiguration of the cluster (recreate switches/routers with new subnet values)
 func (oc *Controller) StartClusterMaster(masterNodeName string) error {
 	klog.Infof("Starting cluster master")
 	// The gateway router need to be connected to the distributed router via a per-node join switch.
